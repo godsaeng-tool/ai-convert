@@ -4,13 +4,7 @@
 ## 2025 03 13 
 
 클론 후... 
-1. 가상환경 설정 
-
-- 프로젝트 폴더 이동 후 (cd)
-- python -m venv venv
-- .\venv\Scripts\activate  # 가상환경 활성화. 
-
-- 비활성화 : deactivate
+1. 가상환경 설정(필요x)
 
 2. 패키지 설치
 
@@ -19,12 +13,8 @@
 - pip install yt-dlp            #yt-dlp 
 - pip install openai-whisper    #whisper  안되면 python 3.11.9 설치 
 
-cpu 대신 gpu 사용 
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-FAISS ,  SentenceTransformer 
-pip install faiss-cpu sentence-transformers numpy
-
-
+ 현재 ffmpeg를 따로 설치해서 환경변수 설정하지 않으면 안 될 가능성이 높습니다.   -0313 20:54
+  추가적으로 cp949 decoding 문제로 오류가 발생할 수 있는데 이는 확인중입니다.    -0313 20:54
 
 3. 실행 
 - python app.py
