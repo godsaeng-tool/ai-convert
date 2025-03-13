@@ -28,6 +28,7 @@ pip install faiss-cpu sentence-transformers numpy
 
 3. 실행 
 - python app.py
+- 실행하고 test.html 브라우저로 여시면 됩니다! - 2025/03/13 17:24 추가
 
 
 4.gitignore 파일 생성 
@@ -45,3 +46,4 @@ pip install faiss-cpu sentence-transformers numpy
 내용 작성 후 업뎃 바람. 
 
 - 작성자: 송원범 -
++엄준현
