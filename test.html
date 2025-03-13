@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>플라스크 서버 테스트</title>
+</head>
+<body>
+    <h1>🎬 URL 처리 테스트</h1>
+    <form id="urlForm">
+        <input type="text" id="url" placeholder="유튜브 URL 입력" required>
+        <button type="submit">URL 처리</button>
+    </form>
+    <pre id="urlResult"></pre>
+
+    <h1>📁 파일 업로드 테스트</h1>
+    <form id="fileForm">
+        <input type="file" id="file" accept=".mp4,.avi,.mov,.mkv,.webm" required>
+        <button type="submit">파일 업로드</button>
+    </form>
+    <pre id="fileResult"></pre>
+
+    <h1>🚀 진행 상황 확인</h1>
+    <input type="text" id="taskId" placeholder="task_id 입력">
+    <button id="checkProgress">진행 상황 확인</button>
+    <button id="cancelTask">작업 취소</button>
+    <pre id="progressResult"></pre>
+
+    <h1>📥 결과 다운로드</h1>
+    <div id="downloadButtons" style="display: none;">
+        <button id="downloadAudio">오디오 다운로드</button>
+        <button id="downloadResult">결과 파일 다운로드</button>
+    </div>
+
+    <script>
+        async function fetchData(url, options, resultElement) {
+            try {
+                const response = await fetch(url, options);
+                const data = await response.json();
+                resultElement.innerText = JSON.stringify(data, null, 2);
+                
+                // task_id 자동 입력
+                if (data.task_id) {
+                    document.getElementById('taskId').value = data.task_id;
+                }
+            } catch (error) {
+                resultElement.innerText = `⚠ 오류 발생: ${error.message}`;
+            }
+        }
+
+        document.getElementById('urlForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const url = document.getElementById('url').value;
+            await fetchData('http://localhost:5000/process/url', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url })
+            }, document.getElementById('urlResult'));
+        });
+
+        document.getElementById('fileForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const file = document.getElementById('file').files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+            await fetchData('http://localhost:5000/process/file', {
+                method: 'POST',
+                body: formData
+            }, document.getElementById('fileResult'));
+        });
+
+        document.getElementById('checkProgress').addEventListener('click', async () => {
+            const taskId = document.getElementById('taskId').value;
+            if (!taskId) {
+                document.getElementById('progressResult').innerText = "⚠ task_id를 입력하세요!";
+                return;
+            }
+            const response = await fetch(`http://localhost:5000/progress/${taskId}`);
+            const data = await response.json();
+            document.getElementById('progressResult').innerText = JSON.stringify(data, null, 2);
+            
+            // 작업이 완료되면 다운로드 버튼 표시
+            const downloadButtons = document.getElementById('downloadButtons');
+            if (data.status === "completed") {
+                downloadButtons.style.display = "block";
+            } else {
+                downloadButtons.style.display = "none";
+            }
+        });
+
+        document.getElementById('cancelTask').addEventListener('click', async () => {
+            const taskId = document.getElementById('taskId').value;
+            if (!taskId) {
+                document.getElementById('progressResult').innerText = "⚠ task_id를 입력하세요!";
+                return;
+            }
+            await fetchData(`http://localhost:5000/cancel/${taskId}`, {
+                method: 'POST'
+            }, document.getElementById('progressResult'));
+        });
+
+        document.getElementById('downloadAudio').addEventListener('click', async () => {
+            const taskId = document.getElementById('taskId').value;
+            if (!taskId) return;
+            window.location.href = `http://localhost:5000/download/audio/${taskId}`;
+        });
+
+        document.getElementById('downloadResult').addEventListener('click', async () => {
+            const taskId = document.getElementById('taskId').value;
+            if (!taskId) return;
+            window.location.href = `http://localhost:5000/download/result/${taskId}`;
+        });
+    </script>
+</body>
+</html>
