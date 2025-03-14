@@ -10,6 +10,7 @@
 
 2. 패키지 설치
 
+- 가장 먼저 api key 입력해주시고
 - pip install flask 
 - pip install ffmpeg-python     #ffmpeg 
 - pip install yt-dlp            #yt-dlp 
