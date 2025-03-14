@@ -13,13 +13,15 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import atexit
+import re
+import queue
 
 # 로깅 설정
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("lecture_processor.log"),
+        logging.FileHandler("lecture_processor.log", encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -49,20 +51,17 @@ app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 progress_tracker = {}
 lock = threading.Lock()
 
+# 작업 큐 생성
+task_queue = queue.Queue()
+
 # ThreadPoolExecutor 생성 (전역 변수로 설정)
 executor = ThreadPoolExecutor(max_workers=4)
 
-def safe_decode(text):
-    """다양한 인코딩 시도"""
-    encodings = ['utf-8', 'cp949', 'euc-kr']
-    for encoding in encodings:
-        try:
-            if isinstance(text, bytes):
-                return text.decode(encoding)
-            return text
-        except UnicodeDecodeError:
-            continue
-    return text
+def sanitize_filename(filename):
+    """파일명에서 시스템에 문제가 될 수 있는 특수문자 제거"""
+    # 특수문자 및 공백 제거, 영숫자와 일부 안전한 문자만 허용
+    sanitized = re.sub(r'[^\w\-_.]', '_', filename)
+    return sanitized
 
 def allowed_file(filename):
     """허용된 파일 확장자인지 확인"""
@@ -104,10 +103,12 @@ def download_from_url(task_id, url):
         output_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{task_id}")
         os.makedirs(output_path, exist_ok=True)
         
+        # 파일명 관련 옵션 추가
         ydl_opts = {
             'format': 'best',
             'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
             'noplaylist': True,
+            'restrictfilenames': True,  # 안전한 파일명 사용
             'progress_hooks': [lambda d: download_progress_hook(d, task_id)],
         }
         
@@ -137,23 +138,6 @@ def download_progress_hook(d, task_id):
     elif d['status'] == 'finished':
         update_progress(task_id, "processing", 40, "다운로드 완료, 변환 시작")
 
-def safe_process_output(process):
-    """프로세스 출력을 여러 인코딩으로 시도하여 안전하게 읽기"""
-    encodings = [None, 'utf-8', 'cp949', 'euc-kr']  # None은 시스템 기본값
-    
-    for encoding in encodings:
-        try:
-            if encoding:
-                stdout, stderr = process.communicate(timeout=1)
-                return stdout.decode(encoding), stderr.decode(encoding)
-            else:
-                stdout, stderr = process.communicate(timeout=1)
-                return stdout, stderr
-        except:
-            process.kill()
-            continue
-    return "", "인코딩 처리 실패"
-
 def extract_audio(task_id, video_path):
     """비디오에서 오디오 추출 (ffmpeg 사용)"""
     try:
@@ -162,43 +146,64 @@ def extract_audio(task_id, video_path):
         output_dir = os.path.join(app.config['PROCESSED_FOLDER'], task_id)
         os.makedirs(output_dir, exist_ok=True)
         
-        # 저품질 오디오는 AI 처리에 충분하며 처리 속도를 높임
+        # 인코딩 문제를 피하기 위해 간단한 파일명 사용
         audio_path = os.path.join(output_dir, f"{task_id}.mp3")
         
-        # ffmpeg 명령 구성
-        cmd = [
-            'ffmpeg',
-            '-i', video_path,
-            '-vn',  # 비디오 스트림 제외
-            '-ar', '16000',  # 샘플링 레이트 16kHz (Whisper 등 AI 모델에 적합)
-            '-ac', '1',  # 모노 채널
-            '-b:a', '64k',  # 비트레이트
-            '-f', 'mp3',
-            audio_path
-        ]
-        
-        # 프로세스 실행 및 실시간 출력 캡처
-        process = subprocess.Popen(
-            cmd, 
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.PIPE
-        )
+        # 경로에 한글이 포함되어도 작동하도록 UTF-8 설정
+        if os.name == 'nt':  # Windows
+            # Windows에서 한글 경로 처리를 위한 설정
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            
+            # ffmpeg 명령 구성 (간소화된 버전)
+            cmd = [
+                'ffmpeg',
+                '-y',  # 기존 파일 덮어쓰기
+                '-i', video_path,
+                '-vn',  # 비디오 스트림 제외
+                '-ar', '16000',  # 샘플링 레이트 16kHz
+                '-ac', '1',  # 모노 채널
+                '-b:a', '64k',  # 비트레이트
+                '-f', 'mp3',
+                audio_path
+            ]
+            
+            # 프로세스 실행
+            process = subprocess.Popen(
+                cmd, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE, 
+                startupinfo=si
+            )
+        else:  # Linux/Mac
+            # ffmpeg 명령 구성
+            cmd = [
+                'ffmpeg',
+                '-y',  # 기존 파일 덮어쓰기
+                '-i', video_path,
+                '-vn',  # 비디오 스트림 제외
+                '-ar', '16000',  # 샘플링 레이트 16kHz
+                '-ac', '1',  # 모노 채널
+                '-b:a', '64k',  # 비트레이트
+                '-f', 'mp3',
+                audio_path
+            ]
+            
+            # 프로세스 실행 및 실시간 출력 캡처
+            process = subprocess.Popen(
+                cmd, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE, 
+                universal_newlines=True
+            )
         
         # ffmpeg 출력에서 진행 상황 파싱
-        while True:
-            output = safe_process_output(process)
-            if output == '' and process.poll() is not None:
-                break
-            if output:
-                # ffmpeg 진행 상황 파싱 (복잡하지만 일부만 구현)
-                if "time=" in output:
-                    # 변환은 40-70% 진행 상황에 매핑
-                    progress = min(70, max(45, 45 + (int(hash(output) % 100) * 0.25)))
-                    update_progress(task_id, "processing", progress, "오디오 추출 중")
+        stdout, stderr = process.communicate()
         
         # 프로세스 완료 확인
         if process.returncode != 0:
-            raise Exception(f"오디오 추출 실패: {stderr}")
+            logger.error(f"FFmpeg 오류: {stderr}")
+            raise Exception(f"오디오 추출 실패: 반환 코드 {process.returncode}")
         
         update_progress(task_id, "processing", 70, "오디오 추출 완료")
         return audio_path
@@ -281,6 +286,37 @@ def cleanup_uploads(task_id):
     except Exception as e:
         logger.warning(f"업로드 파일 정리 중 오류: {str(e)}")
 
+# 작업 처리 스레드
+def worker():
+    """작업 큐에서 작업을 가져와서 처리하는 워커 스레드"""
+    while True:
+        try:
+            # 큐에서 작업 가져오기
+            task = task_queue.get()
+            if task is None:  # 종료 신호
+                break
+                
+            task_id, file_path, url = task
+            # 작업 처리
+            process_lecture(task_id, file_path, url)
+            
+        except Exception as e:
+            logger.error(f"작업 처리 중 오류: {str(e)}")
+        finally:
+            # 작업 완료 표시
+            task_queue.task_done()
+
+# 워커 스레드 시작
+def start_workers(num_workers=4):
+    """워커 스레드들을 시작"""
+    for _ in range(num_workers):
+        t = threading.Thread(target=worker)
+        t.daemon = True
+        t.start()
+
+# 서버 시작 시 워커 스레드 시작
+start_workers()
+
 @app.route('/')
 def home():
     return "강의 처리 서버가 실행 중입니다!"
@@ -296,13 +332,13 @@ def upload_file():
     if file.filename == '':
         return jsonify({"error": "선택된 파일이 없습니다"}), 400
     
+    if not allowed_file(file.filename):
+        return jsonify({"error": f"지원되지 않는 파일 형식입니다. 허용된 형식: {', '.join(ALLOWED_EXTENSIONS)}"}), 400
+    
     try:
-
-        filename = secure_filename(safe_decode(file.filename))
-        if not allowed_file(filename):
-            return jsonify({"error": f"지원되지 않는 파일 형식입니다. 허용된 형식: {', '.join(ALLOWED_EXTENSIONS)}"}), 400
-        
         task_id = str(uuid.uuid4())
+        # 안전한 파일명 사용
+        filename = sanitize_filename(secure_filename(file.filename))
         upload_dir = os.path.join(app.config['UPLOAD_FOLDER'], task_id)
         os.makedirs(upload_dir, exist_ok=True)
         file_path = os.path.join(upload_dir, filename)
@@ -310,13 +346,13 @@ def upload_file():
         
         update_progress(task_id, "uploaded", 10, "파일 업로드 완료")
         
-        # threading 대신 ThreadPoolExecutor 사용
-        executor.submit(process_lecture, task_id, file_path)
+        # 작업 큐에 추가
+        task_queue.put((task_id, file_path, None))
         
         return jsonify({
             "task_id": task_id,
-            "message": "파일 업로드 완료, 처리 시작",
-            "status": "processing"
+            "message": "파일 업로드 완료, 처리 대기열에 추가됨",
+            "status": "queued"
         }), 202
     
     except Exception as e:
@@ -335,20 +371,75 @@ def upload_url():
     
     try:
         task_id = str(uuid.uuid4())
-        update_progress(task_id, "processing", 0, "URL 처리 시작")
+        update_progress(task_id, "queued", 0, "URL 처리 대기 중")
         
-        # threading 대신 ThreadPoolExecutor 사용
-        executor.submit(process_lecture, task_id, None, url)
+        # 작업 큐에 추가
+        task_queue.put((task_id, None, url))
         
         return jsonify({
             "task_id": task_id,
-            "message": "URL 처리 시작",
-            "status": "processing"
+            "message": "URL 처리 대기열에 추가됨",
+            "status": "queued"
         }), 202
     
     except Exception as e:
         logger.error(f"URL 처리 실패: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/process/batch', methods=['POST'])
+def upload_batch():
+    """다중 파일 업로드 엔드포인트"""
+    if 'files[]' not in request.files:
+        return jsonify({"error": "파일이 없습니다"}), 400
+    
+    files = request.files.getlist('files[]')
+    results = []
+    
+    for file in files:
+        if file.filename == '':
+            continue
+            
+        if not allowed_file(file.filename):
+            results.append({
+                "filename": file.filename,
+                "status": "error",
+                "message": f"지원되지 않는 파일 형식입니다. 허용된 형식: {', '.join(ALLOWED_EXTENSIONS)}"
+            })
+            continue
+            
+        try:
+            task_id = str(uuid.uuid4())
+            # 안전한 파일명 사용
+            filename = sanitize_filename(secure_filename(file.filename))
+            upload_dir = os.path.join(app.config['UPLOAD_FOLDER'], task_id)
+            os.makedirs(upload_dir, exist_ok=True)
+            file_path = os.path.join(upload_dir, filename)
+            file.save(file_path)
+            
+            update_progress(task_id, "uploaded", 10, "파일 업로드 완료")
+            
+            # 작업 큐에 추가
+            task_queue.put((task_id, file_path, None))
+            
+            results.append({
+                "filename": file.filename,
+                "task_id": task_id,
+                "status": "queued",
+                "message": "파일 업로드 완료, 처리 대기열에 추가됨"
+            })
+            
+        except Exception as e:
+            logger.error(f"파일 업로드 실패: {str(e)}")
+            results.append({
+                "filename": file.filename,
+                "status": "error",
+                "message": str(e)
+            })
+    
+    return jsonify({
+        "message": f"{len(results)}개 파일 업로드 처리 완료",
+        "results": results
+    }), 202
 
 @app.route('/progress/<task_id>', methods=['GET'])
 def get_progress(task_id):
@@ -359,6 +450,12 @@ def get_progress(task_id):
         
         return jsonify(progress_tracker[task_id]), 200
 
+@app.route('/progress/all', methods=['GET'])
+def get_all_progress():
+    """모든 작업 진행 상황 조회 엔드포인트"""
+    with lock:
+        return jsonify(progress_tracker), 200
+
 @app.route('/download/audio/<task_id>', methods=['GET'])
 def download_processed_audio(task_id):
     """처리된 오디오 파일 다운로드 엔드포인트"""
@@ -368,7 +465,7 @@ def download_processed_audio(task_id):
         if not os.path.exists(processed_dir):
             return jsonify({"error": "처리된 파일을 찾을 수 없습니다"}), 404
         
-        # 디렉토리 내 첫 번째 mp3 파일 찾기
+        # 디렉토리 내 mp3 파일 찾기
         audio_files = [f for f in os.listdir(processed_dir) if f.endswith('.mp3')]
         
         if not audio_files:
@@ -424,9 +521,14 @@ def cancel_task(task_id):
 @app.route('/health', methods=['GET'])
 def health_check():
     """서버 상태 확인 엔드포인트"""
+    # 큐 상태도 추가
+    queue_size = task_queue.qsize()
+    
     return jsonify({
         "status": "healthy",
-        "time": time.time()
+        "time": time.time(),
+        "queue_size": queue_size,
+        "active_tasks": len(progress_tracker)
     }), 200
 
 # AI 처리 모듈 통합 인터페이스
@@ -462,9 +564,14 @@ def ai_process_endpoint():
         logger.error(f"AI 처리 요청 실패: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-# 애플리케이션 종료 시 ThreadPoolExecutor 정리
+# 애플리케이션 종료 시 정리
 @atexit.register
 def cleanup():
+    # 모든 워커에게 종료 신호 보내기
+    for _ in range(4):  # 워커 수만큼
+        task_queue.put(None)
+    
+    # ThreadPoolExecutor 종료
     executor.shutdown(wait=False)
 
 if __name__ == '__main__':
