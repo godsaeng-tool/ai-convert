@@ -137,6 +137,23 @@ def download_progress_hook(d, task_id):
     elif d['status'] == 'finished':
         update_progress(task_id, "processing", 40, "다운로드 완료, 변환 시작")
 
+def safe_process_output(process):
+    """프로세스 출력을 여러 인코딩으로 시도하여 안전하게 읽기"""
+    encodings = [None, 'utf-8', 'cp949', 'euc-kr']  # None은 시스템 기본값
+    
+    for encoding in encodings:
+        try:
+            if encoding:
+                stdout, stderr = process.communicate(timeout=1)
+                return stdout.decode(encoding), stderr.decode(encoding)
+            else:
+                stdout, stderr = process.communicate(timeout=1)
+                return stdout, stderr
+        except:
+            process.kill()
+            continue
+    return "", "인코딩 처리 실패"
+
 def extract_audio(task_id, video_path):
     """비디오에서 오디오 추출 (ffmpeg 사용)"""
     try:
@@ -164,13 +181,12 @@ def extract_audio(task_id, video_path):
         process = subprocess.Popen(
             cmd, 
             stdout=subprocess.PIPE, 
-            stderr=subprocess.PIPE, 
-            universal_newlines=True
+            stderr=subprocess.PIPE
         )
         
         # ffmpeg 출력에서 진행 상황 파싱
         while True:
-            output = process.stderr.readline()
+            output = safe_process_output(process)
             if output == '' and process.poll() is not None:
                 break
             if output:
@@ -182,9 +198,7 @@ def extract_audio(task_id, video_path):
         
         # 프로세스 완료 확인
         if process.returncode != 0:
-            _, stderr = process.communicate()
-            # stderr 디코딩 시 safe_decode 사용
-            raise Exception(f"오디오 추출 실패: {safe_decode(stderr)}")
+            raise Exception(f"오디오 추출 실패: {stderr}")
         
         update_progress(task_id, "processing", 70, "오디오 추출 완료")
         return audio_path
@@ -200,7 +214,7 @@ def send_to_ai_processor(task_id, audio_path):
         update_progress(task_id, "ai_processing", 75, "AI 처리 시작")
         
         # 이 부분에서는 파일 경로를 AI 처리 함수에 전달
-        # 실제 구현에서는 다른 팀원이 담당하는 AI 처리 모듈에 파일 경로를 전달하는 식으로 생각했습니다
+        # 실제 구현에서는 다른 팀원이 담당하는 AI 처리 모듈에 파일 경로를 전달하는 식으로 생각했습니다다
         
         # 예시: 다른 모듈의 함수 호출 (미구현)-> 이런식으로 구현해서 붙여주시면 될 것 같습니다!!
         # from ai_module import process_audio
