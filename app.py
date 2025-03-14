@@ -1,7 +1,8 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, render_template
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
+import whisper
 import uuid
 import subprocess
 import threading
@@ -15,6 +16,10 @@ from pathlib import Path
 import atexit
 import re
 import queue
+import openai
+
+OPENAI_API_KEY = "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"
+openai.api_key = OPENAI_API_KEY
 
 # 로깅 설정
 logging.basicConfig(
@@ -212,44 +217,126 @@ def extract_audio(task_id, video_path):
         logger.error(f"오디오 추출 실패: {str(e)}")
         update_progress(task_id, "failed", 0, f"오디오 추출 실패: {str(e)}")
         raise
+def compress_audio(input_path, output_path):
+    """📌 25MB 이하로 자동 압축 (16kHz 모노, 32kbps 비트레이트)"""
+    cmd = [
+        'ffmpeg', '-i', input_path,
+        '-ar', '16000', '-ac', '1', '-b:a', '32k',
+        '-y', output_path  # 기존 파일 덮어쓰기
+    ]
+    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 def send_to_ai_processor(task_id, audio_path):
-    """오디오 파일을 AI 처리 모듈로 전달 (같은 서버 내 다른 함수로 전달)"""
     try:
-        update_progress(task_id, "ai_processing", 75, "AI 처리 시작")
+        update_progress(task_id, "ai_processing", 75, "Whisper API 처리 준비 중...")
         
-        # 이 부분에서는 파일 경로를 AI 처리 함수에 전달
-        # 실제 구현에서는 다른 팀원이 담당하는 AI 처리 모듈에 파일 경로를 전달하는 식으로 생각했습니다다
+        # 오디오 파일 정보 확인
+        probe_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 
+                     'default=noprint_wrappers=1:nokey=1', audio_path]
+        duration = float(subprocess.check_output(probe_cmd).decode('utf-8').strip())
         
-        # 예시: 다른 모듈의 함수 호출 (미구현)-> 이런식으로 구현해서 붙여주시면 될 것 같습니다!!
-        # from ai_module import process_audio
-        # result = process_audio(audio_path)
-
-        # 임시 결과 객체 (실제로는 AI 처리 결과가 여기에 들어감)
-        result = {
+        # 파일 크기 확인 (바이트)
+        file_size = os.path.getsize(audio_path)
+        file_size_mb = file_size / (1024 * 1024)
+        
+        # 대용량 파일 처리 로직
+        if file_size_mb > 24:  # 24MB 이상이면 분할 처리
+            update_progress(task_id, "ai_processing", 76, f"파일 크기: {file_size_mb:.2f}MB, 분할 처리 시작...")
+            
+            # 청크 길이 계산 (대략 10분 단위로 나누기, 크기에 따라 조정)
+            chunk_length = min(600, duration / (file_size_mb / 24))  # 초 단위
+            
+            # 분할할 청크 수 계산
+            num_chunks = int(duration / chunk_length) + 1
+            update_progress(task_id, "ai_processing", 77, f"총 {num_chunks}개 청크로 분할 처리 중...")
+            
+            # 임시 폴더 생성
+            chunk_dir = os.path.join(app.config['PROCESSED_FOLDER'], f"{task_id}_chunks")
+            os.makedirs(chunk_dir, exist_ok=True)
+            
+            # 전체 텍스트 결과 저장용
+            full_text = []
+            
+            # 각 청크 처리
+            for i in range(num_chunks):
+                start_time = i * chunk_length
+                # 마지막 청크는 끝까지
+                end_time = min((i + 1) * chunk_length, duration)
+                
+                # 진행률 업데이트
+                progress = 77 + (i / num_chunks) * 20
+                update_progress(task_id, "ai_processing", progress, 
+                               f"청크 {i+1}/{num_chunks} 처리 중 ({start_time:.1f}s - {end_time:.1f}s)...")
+                
+                # 청크 파일 생성
+                chunk_file = os.path.join(chunk_dir, f"chunk_{i}.mp3")
+                
+                # ffmpeg로 청크 추출
+                cmd = [
+                    'ffmpeg', '-y', '-i', audio_path,
+                    '-ss', str(start_time), '-to', str(end_time),
+                    '-c:a', 'libmp3lame', '-b:a', '32k',
+                    chunk_file
+                ]
+                subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                
+                # API로 청크 처리
+                with open(chunk_file, "rb") as audio_file:
+                    response = openai.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file,
+                        language="ko"
+                    )
+                
+                # 결과 추가
+                full_text.append(response.text)
+                
+                # 처리된 청크 삭제 (선택적)
+                os.remove(chunk_file)
+            
+            # 임시 디렉토리 정리
+            shutil.rmtree(chunk_dir, ignore_errors=True)
+            
+            # 전체 텍스트 합치기
+            transcribed_text = " ".join(full_text)
+            
+        else:
+            # 기존 로직 - 파일이 작은 경우
+            update_progress(task_id, "ai_processing", 80, "Whisper API 처리 중...")
+            
+            # 압축 파일 경로
+            compressed_audio_path = audio_path.replace(".mp3", "_compressed.mp3")
+            compress_audio(audio_path, compressed_audio_path)
+            
+            with open(compressed_audio_path, "rb") as audio_file:
+                response = openai.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    language="ko"
+                )
+            
+            transcribed_text = response.text
+        
+        # 결과 저장 및 반환 로직은 동일하게 유지
+        result_data = {
             "audio_path": audio_path,
-            "status": "processed",
-            "message": "오디오 처리 완료, AI 분석 준비 완료",
-            # 여기에 AI 처리 결과가 추가될 것
+            "status": "transcribed",
+            "message": "스크립트 변환 완료!",
+            "transcribed_text": transcribed_text
         }
         
-        # 결과 파일 저장 디렉토리 생성
         result_dir = os.path.join(app.config['RESULTS_FOLDER'], task_id)
         os.makedirs(result_dir, exist_ok=True)
-        
-        # 결과 JSON 저장 (실제로는 AI 처리 결과)
         result_path = os.path.join(result_dir, f"{task_id}_result.json")
         with open(result_path, 'w', encoding='utf-8') as f:
-            json.dump(result, f, ensure_ascii=False, indent=4)
+            json.dump(result_data, f, ensure_ascii=False, indent=4)
+            
+        update_progress(task_id, "completed", 100, "변환 완료", result_data)
+        return result_data
         
-        # 완료 상태 업데이트
-        update_progress(task_id, "completed", 100, "AI 처리 완료", result)
-        
-        return result
-    
     except Exception as e:
-        logger.error(f"AI 처리 실패: {str(e)}")
-        update_progress(task_id, "failed", 0, f"AI 처리 실패: {str(e)}")
+        logger.error(f"Whisper API 처리 실패: {str(e)}")
+        update_progress(task_id, "failed", 0, f"Whisper API 처리 실패: {str(e)}")
         raise
 
 def process_lecture(task_id, file_path=None, url=None):
@@ -264,10 +351,12 @@ def process_lecture(task_id, file_path=None, url=None):
         # 2. 오디오 추출
         audio_path = extract_audio(task_id, file_path)
         
-        # 3. AI 처리 모듈로 전달
+        # 3. whisper STT 변환
         result = send_to_ai_processor(task_id, audio_path)
-        
-        # 4. 임시 파일 정리 (파일 저장 안 하고, 처리 완료하면 삭제하는 방식으로)
+
+        # 4. 퀴즈 & 학습 계획 & 튜터링
+
+        # 5. 임시 파일 정리 (파일 저장 안 하고, 처리 완료하면 삭제하는 방식으로)
         cleanup_uploads(task_id)
         
         return result
@@ -319,7 +408,7 @@ start_workers()
 
 @app.route('/')
 def home():
-    return "강의 처리 서버가 실행 중입니다!"
+    return render_template("test.html")
 
 @app.route('/process/file', methods=['POST'])
 def upload_file():
@@ -456,6 +545,31 @@ def get_all_progress():
     with lock:
         return jsonify(progress_tracker), 200
 
+@app.route('/ai/transcribe', methods=['POST'])
+def transcribe_audio():
+    """ 오디오를 Whisper로 변환하여 텍스트 반환"""
+    data = request.get_json()
+    task_id = data.get("task_id")
+
+    if not task_id:
+        return jsonify({"error": "task_id가 제공되지 않았습니다"}), 400
+
+    result_dir = os.path.join(app.config['RESULTS_FOLDER'], task_id)
+
+    if not os.path.exists(result_dir):
+        return jsonify({"error": "결과 파일을 찾을 수 없습니다"}), 404
+
+    result_files = [f for f in os.listdir(result_dir) if f.endswith('_result.json')]
+
+    if not result_files:
+        return jsonify({"error": "스크립트 변환 결과를 찾을 수 없습니다"}), 404
+
+    result_path = os.path.join(result_dir, result_files[0])
+    with open(result_path, 'r', encoding='utf-8') as f:
+        result_data = json.load(f)
+
+    return jsonify(result_data)
+
 @app.route('/download/audio/<task_id>', methods=['GET'])
 def download_processed_audio(task_id):
     """처리된 오디오 파일 다운로드 엔드포인트"""
@@ -481,6 +595,8 @@ def download_processed_audio(task_id):
     except Exception as e:
         logger.error(f"파일 다운로드 실패: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+
 
 @app.route('/download/result/<task_id>', methods=['GET'])
 def download_result(task_id):
@@ -530,6 +646,8 @@ def health_check():
         "queue_size": queue_size,
         "active_tasks": len(progress_tracker)
     }), 200
+
+
 
 # AI 처리 모듈 통합 인터페이스
 # 실제로는 다른 팀원이 개발한 AI 모듈을 import하여 사용할 것
