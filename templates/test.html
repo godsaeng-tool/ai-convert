@@ -1,1 +1,535 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>강의 처리 서버 테스트</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            margin-top: 30px;
+        }
+        input, button {
+            padding: 8px 12px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            cursor: pointer;
+            border: none;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        pre {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        .task-card {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+        }
+        .success { color: green; }
+        .error { color: red; }
+        .warning { color: orange; }
+        .progress-bar {
+            height: 20px;
+            background-color: #e0e0e0;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background-color: #3498db;
+            border-radius: 4px;
+            text-align: center;
+            color: white;
+            line-height: 20px;
+            transition: width 0.3s ease;
+        }
+        .multiple-files-container {
+            border: 2px dashed #ccc;
+            padding: 20px;
+            text-align: center;
+            margin: 10px 0;
+            cursor: pointer;
+        }
+        .file-list {
+            margin: 10px 0;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎬 URL 처리 테스트</h1>
+    <form id="urlForm">
+        <input type="text" id="url" placeholder="유튜브 URL 입력" required style="width: 70%;">
+        <button type="submit">URL 처리</button>
+    </form>
+    <pre id="urlResult"></pre>
 
+    <h1>📁 단일 파일 업로드</h1>
+    <form id="fileForm">
+        <input type="file" id="file" accept=".mp4,.avi,.mov,.mkv,.webm,.mp3,.wav,.flac,.m4a" required>
+        <button type="submit">파일 업로드</button>
+    </form>
+    <pre id="fileResult"></pre>
+
+    <h1>📦 다중 파일 업로드</h1>
+    <div class="multiple-files-container" id="dropZone">
+        <p>파일을 여기에 드래그하거나 클릭하여 선택하세요</p>
+        <input type="file" id="multipleFiles" multiple accept=".mp4,.avi,.mov,.mkv,.webm,.mp3,.wav,.flac,.m4a" style="display: none;">
+    </div>
+    <div class="file-list" id="fileList"></div>
+    <button id="uploadMultiple" disabled>선택한 파일 업로드</button>
+    <pre id="multipleResult"></pre>
+
+    <h1>📊 진행 상황 관리</h1>
+    <input type="text" id="taskId" placeholder="task_id 입력" style="width: 50%;">
+    <button id="checkProgress">진행 상황 확인</button>
+    <button id="checkAllProgress">전체 작업 확인</button>
+    <button id="cancelTask">작업 취소</button>
+    <div id="progressDisplay"></div>
+    <pre id="progressResult"></pre>
+
+    <h1>📥 결과 다운로드</h1>
+    <div id="downloadButtons" style="display: none;">
+        <button id="downloadAudio">오디오 다운로드</button>
+        <button id="downloadResult">결과 파일 다운로드</button>
+    </div>
+    
+    <div id="tasksContainer">
+        <!-- 활성 작업 카드가 여기에 표시됩니다 -->
+    </div>
+
+    <script>
+        // 서버 기본 URL (필요시 변경)
+        const API_BASE_URL = 'http://localhost:5000';
+        
+        // 활성 작업 목록 및 자동 업데이트 관련
+        let activeTasks = {};
+        let updateInterval = null;
+        
+        // 기본 API 호출 함수
+        async function fetchData(url, options, resultElement) {
+            try {
+                const response = await fetch(url, options);
+                const data = await response.json();
+                
+                if (resultElement) {
+                    resultElement.innerText = JSON.stringify(data, null, 2);
+                }
+                
+                // task_id 자동 입력
+                if (data.task_id) {
+                    document.getElementById('taskId').value = data.task_id;
+                    
+                    // 작업 목록에 추가
+                    addToActiveTasks(data.task_id);
+                    
+                    // 자동 업데이트 시작
+                    startAutoUpdate();
+                }
+                
+                return data;
+            } catch (error) {
+                if (resultElement) {
+                    resultElement.innerText = `⚠ 오류 발생: ${error.message}`;
+                }
+                console.error('API 호출 오류:', error);
+                return null;
+            }
+        }
+        
+        // URL 제출 처리
+        document.getElementById('urlForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const url = document.getElementById('url').value;
+            await fetchData(`${API_BASE_URL}/process/url`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url })
+            }, document.getElementById('urlResult'));
+        });
+
+        // 단일 파일 업로드 처리
+        document.getElementById('fileForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const file = document.getElementById('file').files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+            await fetchData(`${API_BASE_URL}/process/file`, {
+                method: 'POST',
+                body: formData
+            }, document.getElementById('fileResult'));
+        });
+        
+        // 드래그 앤 드롭 영역 설정
+        const dropZone = document.getElementById('dropZone');
+        const multipleFiles = document.getElementById('multipleFiles');
+        const fileList = document.getElementById('fileList');
+        const uploadButton = document.getElementById('uploadMultiple');
+        
+        // 클릭으로 파일 선택
+        dropZone.addEventListener('click', () => {
+            multipleFiles.click();
+        });
+        
+        // 드래그 앤 드롭 이벤트
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = '#3498db';
+        });
+        
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.style.borderColor = '#ccc';
+        });
+        
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = '#ccc';
+            
+            if (e.dataTransfer.files.length > 0) {
+                multipleFiles.files = e.dataTransfer.files;
+                updateFileList();
+            }
+        });
+        
+        // 파일 선택 시 목록 업데이트
+        multipleFiles.addEventListener('change', updateFileList);
+        
+        function updateFileList() {
+            fileList.innerHTML = '';
+            uploadButton.disabled = multipleFiles.files.length === 0;
+            
+            Array.from(multipleFiles.files).forEach(file => {
+                const fileItem = document.createElement('div');
+                fileItem.textContent = `${file.name} (${formatFileSize(file.size)})`;
+                fileList.appendChild(fileItem);
+            });
+        }
+        
+        // 파일 크기 포맷팅
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+            else if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+            else return (bytes / 1073741824).toFixed(1) + ' GB';
+        }
+        
+        // 다중 파일 업로드
+        document.getElementById('uploadMultiple').addEventListener('click', async () => {
+            const files = multipleFiles.files;
+            if (files.length === 0) return;
+            
+            const formData = new FormData();
+            Array.from(files).forEach(file => {
+                formData.append('files[]', file);
+            });
+            
+            const result = await fetchData(`${API_BASE_URL}/process/batch`, {
+                method: 'POST',
+                body: formData
+            }, document.getElementById('multipleResult'));
+            
+            // 작업 ID들을 활성 작업 목록에 추가
+            if (result && result.results) {
+                result.results.forEach(item => {
+                    if (item.task_id) {
+                        addToActiveTasks(item.task_id);
+                    }
+                });
+                startAutoUpdate();
+            }
+            
+            // 파일 목록 초기화
+            multipleFiles.value = '';
+            updateFileList();
+        });
+
+        // 진행 상황 확인
+        document.getElementById('checkProgress').addEventListener('click', async () => {
+            const taskId = document.getElementById('taskId').value;
+            if (!taskId) {
+                document.getElementById('progressResult').innerText = "⚠ task_id를 입력하세요!";
+                return;
+            }
+            
+            const data = await fetchData(`${API_BASE_URL}/progress/${taskId}`, {}, document.getElementById('progressResult'));
+            updateProgressDisplay(taskId, data);
+        });
+        
+        // 전체 작업 확인
+        document.getElementById('checkAllProgress').addEventListener('click', async () => {
+            const data = await fetchData(`${API_BASE_URL}/progress/all`, {}, document.getElementById('progressResult'));
+            
+            // 모든 작업을 activeTasks에 추가
+            if (data) {
+                Object.keys(data).forEach(taskId => {
+                    addToActiveTasks(taskId, data[taskId]);
+                });
+                updateAllTaskCards();
+            }
+        });
+
+        // 작업 취소
+        document.getElementById('cancelTask').addEventListener('click', async () => {
+            const taskId = document.getElementById('taskId').value;
+            if (!taskId) {
+                document.getElementById('progressResult').innerText = "⚠ task_id를 입력하세요!";
+                return;
+            }
+            await fetchData(`${API_BASE_URL}/cancel/${taskId}`, {
+                method: 'POST'
+            }, document.getElementById('progressResult'));
+            
+            // 작업 카드 업데이트
+            updateTaskState(taskId, { status: "cancelled", message: "사용자에 의해 취소됨" });
+        });
+
+        // 결과 다운로드 버튼
+        document.getElementById('downloadAudio').addEventListener('click', () => {
+            const taskId = document.getElementById('taskId').value;
+            if (!taskId) return;
+            window.location.href = `${API_BASE_URL}/download/audio/${taskId}`;
+        });
+
+        document.getElementById('downloadResult').addEventListener('click', () => {
+            const taskId = document.getElementById('taskId').value;
+            if (!taskId) return;
+            window.location.href = `${API_BASE_URL}/download/result/${taskId}`;
+        });
+        
+        // 진행 상황 표시 업데이트
+        function updateProgressDisplay(taskId, data) {
+            const progressDisplay = document.getElementById('progressDisplay');
+            const downloadButtons = document.getElementById('downloadButtons');
+            
+            if (!data) {
+                progressDisplay.innerHTML = `<p class="error">작업 정보를 가져올 수 없습니다.</p>`;
+                downloadButtons.style.display = "none";
+                return;
+            }
+            
+            let statusClass = 'warning';
+            if (data.status === "completed") statusClass = 'success';
+            if (data.status === "failed" || data.status === "cancelled") statusClass = 'error';
+            
+            let html = `
+                <h3>작업 ID: ${taskId}</h3>
+                <p>상태: <span class="${statusClass}">${data.status}</span></p>
+                <p>메시지: ${data.message || '정보 없음'}</p>
+            `;
+            
+            if (data.progress !== undefined) {
+                html += `
+                    <div class="progress-bar">
+                        <div class="progress-bar-fill" style="width: ${data.progress}%">${data.progress}%</div>
+                    </div>
+                `;
+            }
+            
+            progressDisplay.innerHTML = html;
+            
+            // 작업이 완료되면 다운로드 버튼 표시
+            if (data.status === "completed") {
+                downloadButtons.style.display = "block";
+            } else {
+                downloadButtons.style.display = "none";
+            }
+        }
+        
+        // 활성 작업 관리
+        function addToActiveTasks(taskId, data) {
+            if (!activeTasks[taskId]) {
+                activeTasks[taskId] = data || { status: "pending" };
+                createTaskCard(taskId);
+            } else if (data) {
+                activeTasks[taskId] = data;
+                updateTaskCard(taskId);
+            }
+        }
+        
+        // 작업 카드 생성
+        function createTaskCard(taskId) {
+            const tasksContainer = document.getElementById('tasksContainer');
+            
+            const card = document.createElement('div');
+            card.id = `task-${taskId}`;
+            card.className = 'task-card';
+            card.innerHTML = `
+                <h3>작업 ID: ${taskId.substring(0, 8)}...</h3>
+                <div class="task-status">로딩 중...</div>
+                <div class="task-progress"></div>
+                <div class="task-actions">
+                    <button class="view-task" data-id="${taskId}">상세 보기</button>
+                    <button class="cancel-task" data-id="${taskId}">작업 취소</button>
+                </div>
+            `;
+            
+            tasksContainer.appendChild(card);
+            
+            // 버튼 이벤트 연결
+            card.querySelector('.view-task').addEventListener('click', () => {
+                document.getElementById('taskId').value = taskId;
+                document.getElementById('checkProgress').click();
+            });
+            
+            card.querySelector('.cancel-task').addEventListener('click', async () => {
+                document.getElementById('taskId').value = taskId;
+                document.getElementById('cancelTask').click();
+            });
+            
+            // 작업 상태 업데이트
+            fetchTaskStatus(taskId);
+        }
+        
+        // 작업 카드 업데이트
+        function updateTaskCard(taskId) {
+            const card = document.getElementById(`task-${taskId}`);
+            if (!card) return;
+            
+            const data = activeTasks[taskId];
+            if (!data) return;
+            
+            const statusElement = card.querySelector('.task-status');
+            const progressElement = card.querySelector('.task-progress');
+            
+            let statusClass = 'warning';
+            if (data.status === "completed") statusClass = 'success';
+            if (data.status === "failed" || data.status === "cancelled") statusClass = 'error';
+            
+            statusElement.innerHTML = `
+                <p>상태: <span class="${statusClass}">${data.status}</span></p>
+                <p>메시지: ${data.message || '정보 없음'}</p>
+            `;
+            
+            if (data.progress !== undefined) {
+                progressElement.innerHTML = `
+                    <div class="progress-bar">
+                        <div class="progress-bar-fill" style="width: ${data.progress}%">${data.progress}%</div>
+                    </div>
+                `;
+            }
+            
+            // 완료된 작업은 취소 버튼 비활성화
+            if (data.status === "completed" || data.status === "failed" || data.status === "cancelled") {
+                const cancelButton = card.querySelector('.cancel-task');
+                if (cancelButton) {
+                    cancelButton.disabled = true;
+                }
+            }
+            
+            // 다운로드 버튼 추가 (완료된 경우)
+            if (data.status === "completed" && !card.querySelector('.download-buttons')) {
+                const actionsElement = card.querySelector('.task-actions');
+                const downloadButtons = document.createElement('div');
+                downloadButtons.className = 'download-buttons';
+                downloadButtons.innerHTML = `
+                    <button class="download-audio" data-id="${taskId}">오디오 다운로드</button>
+                    <button class="download-result" data-id="${taskId}">결과 다운로드</button>
+                `;
+                actionsElement.appendChild(downloadButtons);
+                
+                // 다운로드 버튼 이벤트 연결
+                downloadButtons.querySelector('.download-audio').addEventListener('click', () => {
+                    window.location.href = `${API_BASE_URL}/download/audio/${taskId}`;
+                });
+                
+                downloadButtons.querySelector('.download-result').addEventListener('click', () => {
+                    window.location.href = `${API_BASE_URL}/download/result/${taskId}`;
+                });
+            }
+        }
+        
+        // 단일 작업 상태 업데이트
+        function updateTaskState(taskId, data) {
+            if (activeTasks[taskId]) {
+                Object.assign(activeTasks[taskId], data);
+                updateTaskCard(taskId);
+            }
+        }
+        
+        // 작업 상태 가져오기
+        async function fetchTaskStatus(taskId) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/progress/${taskId}`);
+                const data = await response.json();
+                
+                if (data && !data.error) {
+                    activeTasks[taskId] = data;
+                    updateTaskCard(taskId);
+                }
+            } catch (error) {
+                console.error(`작업 ${taskId} 상태 가져오기 실패:`, error);
+            }
+        }
+        
+        // 모든 작업 카드 업데이트
+        function updateAllTaskCards() {
+            for (const taskId in activeTasks) {
+                if (!document.getElementById(`task-${taskId}`)) {
+                    createTaskCard(taskId);
+                } else {
+                    updateTaskCard(taskId);
+                }
+            }
+        }
+        
+        // 자동 업데이트 시작
+        function startAutoUpdate() {
+            if (!updateInterval) {
+                updateInterval = setInterval(() => {
+                    const taskIds = Object.keys(activeTasks);
+                    if (taskIds.length === 0) {
+                        clearInterval(updateInterval);
+                        updateInterval = null;
+                        return;
+                    }
+                    
+                    // 진행 중인 작업만 업데이트
+                    taskIds.forEach(taskId => {
+                        const task = activeTasks[taskId];
+                        if (task && task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
+                            fetchTaskStatus(taskId);
+                        }
+                    });
+                }, 3000); // 3초마다 업데이트
+            }
+        }
+        
+        // 페이지 로드 시 서버 상태 확인
+        async function checkServerStatus() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/health`);
+                const data = await response.json();
+                console.log('서버 상태:', data);
+            } catch (error) {
+                console.error('서버 연결 실패:', error);
+                alert('서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.');
+            }
+        }
+        
+        // 페이지 로드 시 실행
+        window.addEventListener('load', () => {
+            checkServerStatus();
+        });
+    </script>
+</body>
+</html>
