@@ -1,26 +1,30 @@
 
 
 
-## 2025 03 13... 
+## 2025 03 15 업데이트... 
 
 클론 후... 
 1. 가상환경 설정(필요x)
+
+- 그대로 진행하셔도 괜찮고 가상환경에서 하셔도 됩니다!
 
 2. 패키지 설치
 
 - pip install flask 
 - pip install ffmpeg-python     #ffmpeg 
 - pip install yt-dlp            #yt-dlp 
-- pip install openai-whisper    #whisper  안되면 python 3.11.9 설치 
+- import whisper 필요 없습니다. 지우고 진행하시면 됩니다! - 0315 01:15
 
 - 현재 ffmpeg를 따로 설치해서 환경변수 설정하지 않으면 안 될 가능성이 높습니다.   -0313 20:54
 - 추가적으로 cp949 decoding 문제로 오류가 발생할 수 있는데 이는 확인중입니다.    -0313 20:54
 - 인코딩, 디코딩, 파일 여러 개 넣는 문제는 해결한 것 같습니다. 오류 발생하면 바로 말씀해주십쇼 -0314 11:25
 - ffmpeg는 따로 설치없이 가능한 방법이 있는지 계속 찾아보겠습니다
+- ffmpeg는 따로 설치하고 시스템 환경변수 설정해서 진행해주시면 감사하겠습니다. -0315 01:15
 
 3. 실행 
-- python app.py
-- 실행하고 test.html 브라우저로 여시면 됩니다! - 2025/03/13 17:24 추가
+- python app.py -> 통합 전 버전입니다
+- python app22.py -> 통합 후 버전입니다
+- 현재는 app22.py 실행하고 test.html 브라우저로 여시면 됩니다! - 0315 0116 수정
 
 
 4.gitignore 파일 생성 
