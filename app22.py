@@ -21,7 +21,7 @@ import numpy as np
 import faiss
 
 # OpenAI API 키 설정
-OPENAI_API_KEY = "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"
+OPENAI_API_KEY = "키 입력해 주세요(추후 환경변수로 빼놓겠습니다)"
 openai.api_key = OPENAI_API_KEY
 
 # OpenAI 클라이언트 설정
