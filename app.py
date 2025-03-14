@@ -52,6 +52,18 @@ lock = threading.Lock()
 # ThreadPoolExecutor 생성 (전역 변수로 설정)
 executor = ThreadPoolExecutor(max_workers=4)
 
+def safe_decode(text):
+    """다양한 인코딩 시도"""
+    encodings = ['utf-8', 'cp949', 'euc-kr']
+    for encoding in encodings:
+        try:
+            if isinstance(text, bytes):
+                return text.decode(encoding)
+            return text
+        except UnicodeDecodeError:
+            continue
+    return text
+
 def allowed_file(filename):
     """허용된 파일 확장자인지 확인"""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -171,7 +183,8 @@ def extract_audio(task_id, video_path):
         # 프로세스 완료 확인
         if process.returncode != 0:
             _, stderr = process.communicate()
-            raise Exception(f"오디오 추출 실패: {stderr}")
+            # stderr 디코딩 시 safe_decode 사용
+            raise Exception(f"오디오 추출 실패: {safe_decode(stderr)}")
         
         update_progress(task_id, "processing", 70, "오디오 추출 완료")
         return audio_path
@@ -187,7 +200,7 @@ def send_to_ai_processor(task_id, audio_path):
         update_progress(task_id, "ai_processing", 75, "AI 처리 시작")
         
         # 이 부분에서는 파일 경로를 AI 처리 함수에 전달
-        # 실제 구현에서는 다른 팀원이 담당하는 AI 처리 모듈에 파일 경로를 전달하는 식으로 생각했습니다다
+        # 실제 구현에서는 다른 팀원이 담당하는 AI 처리 모듈에 파일 경로를 전달하는 식으로 생각했습니다
         
         # 예시: 다른 모듈의 함수 호출 (미구현)-> 이런식으로 구현해서 붙여주시면 될 것 같습니다!!
         # from ai_module import process_audio
@@ -269,12 +282,13 @@ def upload_file():
     if file.filename == '':
         return jsonify({"error": "선택된 파일이 없습니다"}), 400
     
-    if not allowed_file(file.filename):
-        return jsonify({"error": f"지원되지 않는 파일 형식입니다. 허용된 형식: {', '.join(ALLOWED_EXTENSIONS)}"}), 400
-    
     try:
+
+        filename = secure_filename(safe_decode(file.filename))
+        if not allowed_file(filename):
+            return jsonify({"error": f"지원되지 않는 파일 형식입니다. 허용된 형식: {', '.join(ALLOWED_EXTENSIONS)}"}), 400
+        
         task_id = str(uuid.uuid4())
-        filename = secure_filename(file.filename)
         upload_dir = os.path.join(app.config['UPLOAD_FOLDER'], task_id)
         os.makedirs(upload_dir, exist_ok=True)
         file_path = os.path.join(upload_dir, filename)
