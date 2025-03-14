@@ -74,48 +74,107 @@
             max-height: 200px;
             overflow-y: auto;
         }
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            margin-right: 5px;
+            border: 1px solid #ddd;
+            border-bottom: none;
+            border-radius: 4px 4px 0 0;
+        }
+        .tab.active {
+            background-color: #3498db;
+            color: white;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .ai-output {
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 10px 0;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            background-color: #fafafa;
+        }
     </style>
 </head>
 <body>
-    <h1>🎬 URL 처리 테스트</h1>
-    <form id="urlForm">
-        <input type="text" id="url" placeholder="유튜브 URL 입력" required style="width: 70%;">
-        <button type="submit">URL 처리</button>
-    </form>
-    <pre id="urlResult"></pre>
-
-    <h1>📁 단일 파일 업로드</h1>
-    <form id="fileForm">
-        <input type="file" id="file" accept=".mp4,.avi,.mov,.mkv,.webm,.mp3,.wav,.flac,.m4a" required>
-        <button type="submit">파일 업로드</button>
-    </form>
-    <pre id="fileResult"></pre>
-
-    <h1>📦 다중 파일 업로드</h1>
-    <div class="multiple-files-container" id="dropZone">
-        <p>파일을 여기에 드래그하거나 클릭하여 선택하세요</p>
-        <input type="file" id="multipleFiles" multiple accept=".mp4,.avi,.mov,.mkv,.webm,.mp3,.wav,.flac,.m4a" style="display: none;">
+    <h1>🧠 강의 처리 및 AI 분석 테스트</h1>
+    <div class="tabs">
+        <div class="tab active" data-tab="upload">업로드</div>
+        <div class="tab" data-tab="progress">진행 상황</div>
+        <div class="tab" data-tab="ai">AI 분석</div>
     </div>
-    <div class="file-list" id="fileList"></div>
-    <button id="uploadMultiple" disabled>선택한 파일 업로드</button>
-    <pre id="multipleResult"></pre>
 
-    <h1>📊 진행 상황 관리</h1>
-    <input type="text" id="taskId" placeholder="task_id 입력" style="width: 50%;">
-    <button id="checkProgress">진행 상황 확인</button>
-    <button id="checkAllProgress">전체 작업 확인</button>
-    <button id="cancelTask">작업 취소</button>
-    <div id="progressDisplay"></div>
-    <pre id="progressResult"></pre>
+    <div class="tab-content active" id="upload-tab">
+        <h2>🎬 URL 처리 테스트</h2>
+        <form id="urlForm">
+            <input type="text" id="url" placeholder="유튜브 URL 입력" required style="width: 70%;">
+            <button type="submit">URL 처리</button>
+        </form>
+        <pre id="urlResult"></pre>
 
-    <h1>📥 결과 다운로드</h1>
-    <div id="downloadButtons" style="display: none;">
-        <button id="downloadAudio">오디오 다운로드</button>
-        <button id="downloadResult">결과 파일 다운로드</button>
+        <h2>📁 단일 파일 업로드</h2>
+        <form id="fileForm">
+            <input type="file" id="file" accept=".mp4,.avi,.mov,.mkv,.webm,.mp3,.wav,.flac,.m4a" required>
+            <button type="submit">파일 업로드</button>
+        </form>
+        <pre id="fileResult"></pre>
+
+        <h2>📦 다중 파일 업로드</h2>
+        <div class="multiple-files-container" id="dropZone">
+            <p>파일을 여기에 드래그하거나 클릭하여 선택하세요</p>
+            <input type="file" id="multipleFiles" multiple accept=".mp4,.avi,.mov,.mkv,.webm,.mp3,.wav,.flac,.m4a" style="display: none;">
+        </div>
+        <div class="file-list" id="fileList"></div>
+        <button id="uploadMultiple" disabled>선택한 파일 업로드</button>
+        <pre id="multipleResult"></pre>
     </div>
-    
-    <div id="tasksContainer">
-        <!-- 활성 작업 카드가 여기에 표시됩니다 -->
+
+    <div class="tab-content" id="progress-tab">
+        <h2>📊 진행 상황 관리</h2>
+        <input type="text" id="taskId" placeholder="task_id 입력" style="width: 50%;">
+        <button id="checkProgress">진행 상황 확인</button>
+        <button id="checkAllProgress">전체 작업 확인</button>
+        <button id="cancelTask">작업 취소</button>
+        <div id="progressDisplay"></div>
+        <pre id="progressResult"></pre>
+
+        <h2>📥 결과 다운로드</h2>
+        <div id="downloadButtons" style="display: none;">
+            <button id="downloadAudio">오디오 다운로드</button>
+            <button id="downloadResult">결과 파일 다운로드</button>
+        </div>
+        
+        <div id="tasksContainer">
+            <!-- 활성 작업 카드가 여기에 표시됩니다 -->
+        </div>
+    </div>
+
+    <div class="tab-content" id="ai-tab">
+        <h2>🤖 AI 분석 및 결과</h2>
+        <div>
+            <input type="text" id="aiTaskId" placeholder="작업 ID 입력" style="width: 50%;">
+            <button id="generateSummary">요약 생성</button>
+            <button id="generateQuiz">퀴즈 생성</button>
+        </div>
+        
+        <h3>📝 요약 결과</h3>
+        <div id="summaryOutput" class="ai-output">요약 내용이 여기에 표시됩니다...</div>
+        
+        <h3>❓ 퀴즈</h3>
+        <div id="quizOutput" class="ai-output">퀴즈가 여기에 표시됩니다...</div>
     </div>
 
     <script>
@@ -125,6 +184,19 @@
         // 활성 작업 목록 및 자동 업데이트 관련
         let activeTasks = {};
         let updateInterval = null;
+        
+        // 탭 전환 기능
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                // 현재 활성화된 탭 비활성화
+                document.querySelector('.tab.active').classList.remove('active');
+                document.querySelector('.tab-content.active').classList.remove('active');
+                
+                // 선택한 탭 활성화
+                tab.classList.add('active');
+                document.getElementById(`${tab.dataset.tab}-tab`).classList.add('active');
+            });
+        });
         
         // 기본 API 호출 함수
         async function fetchData(url, options, resultElement) {
@@ -139,6 +211,7 @@
                 // task_id 자동 입력
                 if (data.task_id) {
                     document.getElementById('taskId').value = data.task_id;
+                    document.getElementById('aiTaskId').value = data.task_id;
                     
                     // 작업 목록에 추가
                     addToActiveTasks(data.task_id);
@@ -153,6 +226,33 @@
                     resultElement.innerText = `⚠ 오류 발생: ${error.message}`;
                 }
                 console.error('API 호출 오류:', error);
+                return null;
+            }
+        }
+        
+        // 스트리밍 응답 처리 함수
+        async function fetchStreamingData(url, options, outputElement) {
+            try {
+                outputElement.textContent = "처리 중...";
+                
+                const response = await fetch(url, options);
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let text = "";
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value, { stream: true });
+                    text += chunk;
+                    outputElement.textContent = text;
+                }
+                
+                return text;
+            } catch (error) {
+                outputElement.textContent = `⚠ 오류 발생: ${error.message}`;
+                console.error('스트리밍 API 호출 오류:', error);
                 return null;
             }
         }
@@ -316,6 +416,37 @@
             window.location.href = `${API_BASE_URL}/download/result/${taskId}`;
         });
         
+        // AI 분석 버튼 이벤트
+        document.getElementById('generateSummary').addEventListener('click', async () => {
+            const taskId = document.getElementById('aiTaskId').value;
+            if (!taskId) {
+                document.getElementById('summaryOutput').innerText = "⚠ 작업 ID를 입력하세요!";
+                return;
+            }
+            
+            // 요약 생성 (스트리밍 방식)
+            await fetchStreamingData(`${API_BASE_URL}/summary`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lecture_id: taskId, streaming: true })
+            }, document.getElementById('summaryOutput'));
+        });
+        
+        document.getElementById('generateQuiz').addEventListener('click', async () => {
+            const taskId = document.getElementById('aiTaskId').value;
+            if (!taskId) {
+                document.getElementById('quizOutput').innerText = "⚠ 작업 ID를 입력하세요!";
+                return;
+            }
+            
+            // 퀴즈 생성 (스트리밍 방식)
+            await fetchStreamingData(`${API_BASE_URL}/quizzes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lecture_id: taskId, streaming: true })
+            }, document.getElementById('quizOutput'));
+        });
+        
         // 진행 상황 표시 업데이트
         function updateProgressDisplay(taskId, data) {
             const progressDisplay = document.getElementById('progressDisplay');
@@ -348,8 +479,12 @@
             progressDisplay.innerHTML = html;
             
             // 작업이 완료되면 다운로드 버튼 표시
-            if (data.status === "completed") {
+            if (data.status === "completed" || data.status === "transcribed" || 
+                data.status === "summarized" || data.status === "quiz_generated") {
                 downloadButtons.style.display = "block";
+                
+                // 작업이 텍스트 변환 단계 이상 진행되었으면 AI 탭에 작업 ID 자동 설정
+                document.getElementById('aiTaskId').value = taskId;
             } else {
                 downloadButtons.style.display = "none";
             }
@@ -380,6 +515,7 @@
                 <div class="task-actions">
                     <button class="view-task" data-id="${taskId}">상세 보기</button>
                     <button class="cancel-task" data-id="${taskId}">작업 취소</button>
+                    <button class="ai-analyze" data-id="${taskId}">AI 분석</button>
                 </div>
             `;
             
@@ -394,6 +530,12 @@
             card.querySelector('.cancel-task').addEventListener('click', async () => {
                 document.getElementById('taskId').value = taskId;
                 document.getElementById('cancelTask').click();
+            });
+            
+            card.querySelector('.ai-analyze').addEventListener('click', () => {
+                // AI 분석 탭으로 전환하고 작업 ID 설정
+                document.querySelector('.tab[data-tab="ai"]').click();
+                document.getElementById('aiTaskId').value = taskId;
             });
             
             // 작업 상태 업데이트
@@ -437,7 +579,8 @@
             }
             
             // 다운로드 버튼 추가 (완료된 경우)
-            if (data.status === "completed" && !card.querySelector('.download-buttons')) {
+            if ((data.status === "completed" || data.status === "transcribed") && 
+                !card.querySelector('.download-buttons')) {
                 const actionsElement = card.querySelector('.task-actions');
                 const downloadButtons = document.createElement('div');
                 downloadButtons.className = 'download-buttons';
