@@ -1,0 +1,420 @@
+{% extends "base.html" %}
+
+{% block title %}AI 강의 도우미 - 퀴즈 생성{% endblock %}
+
+{% block nav_lectures_active %}active{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center fade-in">
+    <div class="col-md-10">
+        <div class="alert-container mb-4"></div>
+
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0"><i class="fas fa-question-circle"></i> 강의 퀴즈 생성</h4>
+            </div>
+            <div class="card-body">
+                <div class="card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0"><i class="fas fa-book"></i> 강의 선택</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="lectureSelect" class="form-label">퀴즈를 생성할 강의 선택</label>
+                            <select class="form-select" id="lectureSelect">
+                                <option value="" selected disabled>강의를 선택하세요</option>
+                                <!-- 여기에 강의 목록이 동적으로 추가됩니다 -->
+                            </select>
+                        </div>
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-primary" id="generateBtn" disabled>
+                                <i class="fas fa-magic"></i> 퀴즈 생성하기
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 로딩 표시 -->
+                <div id="loadingContainer" class="d-none">
+                    <div class="text-center my-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-3 text-muted" id="loadingMessage">퀴즈 생성 중...</p>
+                    </div>
+                </div>
+
+                <!-- 결과 영역 -->
+                <div id="resultContainer" class="d-none">
+                    <div class="card">
+                        <div class="card-header bg-success text-white">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0"><i class="fas fa-question-circle"></i> <span id="lectureTitleDisplay"></span> - 퀴즈</h5>
+                                <div>
+                                    <button class="btn btn-sm btn-light" id="copyBtn" title="복사하기">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-light ms-2" id="downloadBtn" title="다운로드">
+                                        <i class="fas fa-download"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <!-- 인터랙티브 퀴즈 영역 -->
+                            <div id="interactiveQuiz" class="d-none">
+                                <div class="text-end mb-3">
+                                    <button class="btn btn-sm btn-outline-primary" id="toggleViewBtn">
+                                        <i class="fas fa-list-ul"></i> 텍스트 보기로 전환
+                                    </button>
+                                </div>
+                                
+                                <div id="quizContainer">
+                                    <!-- 퀴즈 문제들이 여기에 동적으로 추가됩니다 -->
+                                </div>
+                                
+                                <div class="text-center mt-4">
+                                    <button class="btn btn-primary" id="checkAnswersBtn">
+                                        <i class="fas fa-check"></i> 정답 확인하기
+                                    </button>
+                                    <button class="btn btn-outline-primary ms-2" id="resetQuizBtn">
+                                        <i class="fas fa-redo"></i> 다시 풀기
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- 텍스트 보기 영역 -->
+                            <div id="textView">
+                                <div class="text-end mb-3">
+                                    <button class="btn btn-sm btn-outline-primary" id="toggleInteractiveBtn">
+                                        <i class="fas fa-gamepad"></i> 인터랙티브 모드로 전환
+                                    </button>
+                                </div>
+                                
+                                <div class="streaming-container" id="quizText">
+                                    <p class="text-center text-muted">퀴즈가 여기에 표시됩니다.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 추가 작업 버튼 -->
+                    <div class="d-flex justify-content-center mt-4">
+                        <div class="btn-group">
+                            <a id="summaryBtn" class="btn btn-outline-primary">
+                                <i class="fas fa-align-left"></i> 요약 보기
+                            </a>
+                            <a id="studyPlanBtn" class="btn btn-outline-success">
+                                <i class="fas fa-calendar-alt"></i> 학습 계획 생성하기
+                            </a>
+                            <a id="tutorBtn" class="btn btn-outline-info">
+                                <i class="fas fa-robot"></i> AI 튜터와 대화하기
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentLectureId = null;
+    let currentLectureTitle = '';
+    let quizData = [];
+
+    // 페이지 로드 시 URL 파라미터 확인 후 강의 목록 가져오기
+    window.addEventListener('DOMContentLoaded', function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const lectureId = urlParams.get('lecture_id');
+        
+        loadLectures().then(() => {
+            if (lectureId) {
+                // URL에서 강의 ID가 제공된 경우 자동으로 선택하고 퀴즈 생성
+                const selectElement = document.getElementById('lectureSelect');
+                for (let i = 0; i < selectElement.options.length; i++) {
+                    if (selectElement.options[i].value === lectureId) {
+                        selectElement.selectedIndex = i;
+                        currentLectureId = lectureId;
+                        currentLectureTitle = selectElement.options[i].dataset.title;
+                        document.getElementById('generateBtn').disabled = false;
+                        document.getElementById('generateBtn').click();
+                        break;
+                    }
+                }
+            }
+        });
+    });
+
+    // 강의 목록 로드
+    function loadLectures() {
+        return fetch('/lectures')
+            .then(response => response.json())
+            .then(data => {
+                const select = document.getElementById('lectureSelect');
+                
+                // 기존 옵션 제거 (첫 번째 옵션 제외)
+                while (select.options.length > 1) {
+                    select.remove(1);
+                }
+                
+                // 강의 목록 추가
+                data.forEach(lecture => {
+                    const option = document.createElement('option');
+                    option.value = lecture.id;
+                    option.textContent = lecture.title;
+                    option.dataset.title = lecture.title;
+                    select.appendChild(option);
+                });
+                
+                // 버튼 활성화
+                select.addEventListener('change', function() {
+                    const generateBtn = document.getElementById('generateBtn');
+                    generateBtn.disabled = !this.value;
+                    
+                    if (this.value) {
+                        currentLectureId = this.value;
+                        currentLectureTitle = this.options[this.selectedIndex].dataset.title;
+                    }
+                });
+            })
+            .catch(error => {
+                console.error('Error loading lectures:', error);
+                showAlert('강의 목록을 불러오는데 실패했습니다.', 'danger');
+            });
+    }
+
+    // 퀴즈 생성 버튼 이벤트
+    document.getElementById('generateBtn').addEventListener('click', function() {
+        if (!currentLectureId) return;
+        
+        // 로딩 표시
+        document.getElementById('loadingContainer').classList.remove('d-none');
+        document.getElementById('resultContainer').classList.add('d-none');
+        
+        // 퀴즈 생성 API 호출
+        generateQuiz(currentLectureId);
+    });
+
+    // 퀴즈 생성 함수
+    function generateQuiz(lectureId) {
+        const quizContainer = document.getElementById('quizText');
+        const loadingContainer = document.getElementById('loadingContainer');
+        const resultContainer = document.getElementById('resultContainer');
+        
+        // 스트리밍 방식 요청
+        fetch('/quizzes', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ lecture_id: lectureId, streaming: true })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('퀴즈 생성 요청 실패');
+            }
+            
+            // 제목 표시
+            document.getElementById('lectureTitleDisplay').textContent = currentLectureTitle;
+            
+            // 리더 설정
+            const reader = response.body.getReader();
+            let quizContent = '';
+            
+            // 로딩 숨기고 결과 컨테이너 표시
+            loadingContainer.classList.add('d-none');
+            resultContainer.classList.remove('d-none');
+            
+            // 버튼 URL 설정
+            document.getElementById('summaryBtn').href = `/summary?lecture_id=${lectureId}`;
+            document.getElementById('studyPlanBtn').href = `/study-plan?lecture_id=${lectureId}`;
+            document.getElementById('tutorBtn').href = `/?task_id=${lectureId}#ai-tutor`;
+            
+            // 초기 결과 영역 설정
+            quizContainer.innerHTML = '<p>퀴즈 생성 중...</p>';
+            
+            function processStream({ done, value }) {
+                if (done) {
+                    // 스트리밍 완료 후 퀴즈 데이터 파싱
+                    parseQuizData(quizContent);
+                    return;
+                }
+                
+                // 수신된 데이터 처리
+                const chunk = new TextDecoder().decode(value);
+                quizContent += chunk;
+                quizContainer.innerHTML = `<p>${quizContent.replace(/\n/g, '<br>')}</p>`;
+                
+                // 다음 데이터 청크 읽기
+                return reader.read().then(processStream);
+            }
+            
+            return reader.read().then(processStream);
+        })
+        .catch(error => {
+            console.error('Quiz generation error:', error);
+            loadingContainer.classList.add('d-none');
+            showAlert('퀴즈 생성에 실패했습니다.', 'danger');
+        });
+    }
+
+    // 퀴즈 데이터 파싱 및 인터랙티브 모드 준비
+    function parseQuizData(quizText) {
+        // 간단한 퀴즈 파싱 로직 (실제 구현 시 정규식 등으로 더 정확하게 구현 필요)
+        const lines = quizText.split('\n');
+        let currentQuestion = null;
+        quizData = [];
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            
+            if (line.startsWith('문제') || line.match(/^\d+\./)) {
+                // 새 문제 시작
+                if (currentQuestion) {
+                    quizData.push(currentQuestion);
+                }
+                currentQuestion = {
+                    question: line.replace(/^문제\s*\d*\.?\s*/, '').replace(/^\d+\.\s*/, ''),
+                    answer: ''
+                };
+            } else if (line.startsWith('정답') && currentQuestion) {
+                // 정답 라인
+                currentQuestion.answer = line.replace(/^정답\s*:?\s*/, '');
+            } else if (line && currentQuestion && !currentQuestion.answer) {
+                // 문제 내용 계속
+                currentQuestion.question += ' ' + line;
+            }
+        }
+        
+        // 마지막 문제 추가
+        if (currentQuestion) {
+            quizData.push(currentQuestion);
+        }
+        
+        // 인터랙티브 모드 준비
+        prepareInteractiveQuiz();
+    }
+
+    // 인터랙티브 퀴즈 준비
+    function prepareInteractiveQuiz() {
+        const quizContainer = document.getElementById('quizContainer');
+        quizContainer.innerHTML = '';
+        
+        quizData.forEach((quiz, index) => {
+            const questionDiv = document.createElement('div');
+            questionDiv.className = 'card mb-3 quiz-question';
+            questionDiv.innerHTML = `
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">문제 ${index + 1}</h5>
+                </div>
+                <div class="card-body">
+                    <p class="mb-3">${quiz.question}</p>
+                    <div class="mb-3">
+                        <label for="answer-${index}" class="form-label">답변:</label>
+                        <input type="text" class="form-control" id="answer-${index}" placeholder="답변을 입력하세요">
+                    </div>
+                    <div class="feedback-area d-none" id="feedback-${index}"></div>
+                </div>
+            `;
+            quizContainer.appendChild(questionDiv);
+        });
+        
+        // 토글 버튼 이벤트 연결
+        document.getElementById('toggleViewBtn').addEventListener('click', toggleQuizView);
+        document.getElementById('toggleInteractiveBtn').addEventListener('click', toggleQuizView);
+        
+        // 정답 확인 버튼 이벤트 연결
+        document.getElementById('checkAnswersBtn').addEventListener('click', checkAnswers);
+        
+        // 리셋 버튼 이벤트 연결
+        document.getElementById('resetQuizBtn').addEventListener('click', resetQuiz);
+    }
+
+    // 퀴즈 보기 모드 전환
+    function toggleQuizView() {
+        const textView = document.getElementById('textView');
+        const interactiveQuiz = document.getElementById('interactiveQuiz');
+        
+        if (textView.classList.contains('d-none')) {
+            // 인터랙티브 모드 -> 텍스트 모드
+            textView.classList.remove('d-none');
+            interactiveQuiz.classList.add('d-none');
+        } else {
+            // 텍스트 모드 -> 인터랙티브 모드
+            textView.classList.add('d-none');
+            interactiveQuiz.classList.remove('d-none');
+        }
+    }
+
+    // 정답 확인
+    function checkAnswers() {
+        let correctCount = 0;
+        
+        quizData.forEach((quiz, index) => {
+            const userAnswer = document.getElementById(`answer-${index}`).value.trim();
+            const feedbackArea = document.getElementById(`feedback-${index}`);
+            feedbackArea.classList.remove('d-none', 'text-success', 'text-danger');
+            
+            // 간단한 정답 비교 (실제 구현 시 더 정확한 비교 알고리즘 필요)
+            if (userAnswer.toLowerCase() === quiz.answer.toLowerCase()) {
+                feedbackArea.innerHTML = '<i class="fas fa-check-circle"></i> 정답입니다!';
+                feedbackArea.classList.add('text-success');
+                correctCount++;
+            } else {
+                feedbackArea.innerHTML = `<i class="fas fa-times-circle"></i> 오답입니다. 정답: ${quiz.answer}`;
+                feedbackArea.classList.add('text-danger');
+            }
+        });
+        
+        // 전체 결과 알림
+        showAlert(`총 ${quizData.length}문제 중 ${correctCount}문제를 맞췄습니다!`, 'info');
+    }
+
+    // 퀴즈 리셋
+    function resetQuiz() {
+        quizData.forEach((quiz, index) => {
+            document.getElementById(`answer-${index}`).value = '';
+            const feedbackArea = document.getElementById(`feedback-${index}`);
+            feedbackArea.classList.add('d-none');
+        });
+    }
+
+    // 복사 버튼 이벤트
+    document.getElementById('copyBtn').addEventListener('click', function() {
+        const quizText = document.getElementById('quizText').innerText;
+        
+        navigator.clipboard.writeText(quizText)
+            .then(() => {
+                showAlert('퀴즈 내용이 클립보드에 복사되었습니다.', 'success');
+            })
+            .catch(err => {
+                console.error('복사 실패:', err);
+                showAlert('복사에 실패했습니다.', 'danger');
+            });
+    });
+
+    // 다운로드 버튼 이벤트
+    document.getElementById('downloadBtn').addEventListener('click', function() {
+        if (!currentLectureId) return;
+        
+        const quizText = document.getElementById('quizText').innerText;
+        const blob = new Blob([quizText], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        
+        a.href = url;
+        a.download = `퀴즈_${currentLectureTitle}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        
+        // 정리
+        setTimeout(() => {
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }, 100);
+    });
+</script>
+{% endblock %}

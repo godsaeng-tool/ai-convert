@@ -1,678 +1,834 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>강의 처리 서버 테스트</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            line-height: 1.6;
-        }
-        h1 {
-            color: #2c3e50;
-            border-bottom: 1px solid #eee;
-            padding-bottom: 10px;
-            margin-top: 30px;
-        }
-        input, button {
-            padding: 8px 12px;
-            margin: 5px 0;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-        button {
-            background-color: #3498db;
-            color: white;
-            cursor: pointer;
-            border: none;
-        }
-        button:hover {
-            background-color: #2980b9;
-        }
-        pre {
-            background-color: #f8f9fa;
-            padding: 15px;
-            border-radius: 5px;
-            overflow-x: auto;
-        }
-        .task-card {
-            border: 1px solid #ddd;
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 4px;
-            background-color: #f9f9f9;
-        }
-        .success { color: green; }
-        .error { color: red; }
-        .warning { color: orange; }
-        .progress-bar {
-            height: 20px;
-            background-color: #e0e0e0;
-            border-radius: 4px;
-            margin: 10px 0;
-        }
-        .progress-bar-fill {
-            height: 100%;
-            background-color: #3498db;
-            border-radius: 4px;
-            text-align: center;
-            color: white;
-            line-height: 20px;
-            transition: width 0.3s ease;
-        }
-        .multiple-files-container {
-            border: 2px dashed #ccc;
-            padding: 20px;
-            text-align: center;
-            margin: 10px 0;
-            cursor: pointer;
-        }
-        .file-list {
-            margin: 10px 0;
-            max-height: 200px;
-            overflow-y: auto;
-        }
-        .tabs {
-            display: flex;
-            border-bottom: 1px solid #ddd;
-            margin-bottom: 20px;
-        }
-        .tab {
-            padding: 10px 20px;
-            cursor: pointer;
-            margin-right: 5px;
-            border: 1px solid #ddd;
-            border-bottom: none;
-            border-radius: 4px 4px 0 0;
-        }
-        .tab.active {
-            background-color: #3498db;
-            color: white;
-        }
-        .tab-content {
-            display: none;
-        }
-        .tab-content.active {
-            display: block;
-        }
-        .ai-output {
-            border: 1px solid #e0e0e0;
-            border-radius: 4px;
-            padding: 15px;
-            margin: 10px 0;
-            max-height: 300px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            background-color: #fafafa;
-        }
-    </style>
-</head>
-<body>
-    <h1>🧠 강의 처리 및 AI 분석 테스트</h1>
-    <div class="tabs">
-        <div class="tab active" data-tab="upload">업로드</div>
-        <div class="tab" data-tab="progress">진행 상황</div>
-        <div class="tab" data-tab="ai">AI 분석</div>
-    </div>
+{% extends "base.html" %}
 
-    <div class="tab-content active" id="upload-tab">
-        <h2>🎬 URL 처리 테스트</h2>
-        <form id="urlForm">
-            <input type="text" id="url" placeholder="유튜브 URL 입력" required style="width: 70%;">
-            <button type="submit">URL 처리</button>
-        </form>
-        <pre id="urlResult"></pre>
+{% block title %}AI 강의 도우미 - 테스트{% endblock %}
 
-        <h2>📁 단일 파일 업로드</h2>
-        <form id="fileForm">
-            <input type="file" id="file" accept=".mp4,.avi,.mov,.mkv,.webm,.mp3,.wav,.flac,.m4a" required>
-            <button type="submit">파일 업로드</button>
-        </form>
-        <pre id="fileResult"></pre>
+{% block nav_home_active %}active{% endblock %}
 
-        <h2>📦 다중 파일 업로드</h2>
-        <div class="multiple-files-container" id="dropZone">
-            <p>파일을 여기에 드래그하거나 클릭하여 선택하세요</p>
-            <input type="file" id="multipleFiles" multiple accept=".mp4,.avi,.mov,.mkv,.webm,.mp3,.wav,.flac,.m4a" style="display: none;">
-        </div>
-        <div class="file-list" id="fileList"></div>
-        <button id="uploadMultiple" disabled>선택한 파일 업로드</button>
-        <pre id="multipleResult"></pre>
-    </div>
+{% block content %}
+<div class="row justify-content-center fade-in">
+    <div class="col-md-10">
+        <div class="alert-container mb-4"></div>
 
-    <div class="tab-content" id="progress-tab">
-        <h2>📊 진행 상황 관리</h2>
-        <input type="text" id="taskId" placeholder="task_id 입력" style="width: 50%;">
-        <button id="checkProgress">진행 상황 확인</button>
-        <button id="checkAllProgress">전체 작업 확인</button>
-        <button id="cancelTask">작업 취소</button>
-        <div id="progressDisplay"></div>
-        <pre id="progressResult"></pre>
-
-        <h2>📥 결과 다운로드</h2>
-        <div id="downloadButtons" style="display: none;">
-            <button id="downloadAudio">오디오 다운로드</button>
-            <button id="downloadResult">결과 파일 다운로드</button>
-        </div>
-        
-        <div id="tasksContainer">
-            <!-- 활성 작업 카드가 여기에 표시됩니다 -->
-        </div>
-    </div>
-
-    <div class="tab-content" id="ai-tab">
-        <h2>🤖 AI 분석 및 결과</h2>
-        <div>
-            <input type="text" id="aiTaskId" placeholder="작업 ID 입력" style="width: 50%;">
-            <button id="generateSummary">요약 생성</button>
-            <button id="generateQuiz">퀴즈 생성</button>
-        </div>
-        
-        <h3>📝 요약 결과</h3>
-        <div id="summaryOutput" class="ai-output">요약 내용이 여기에 표시됩니다...</div>
-        
-        <h3>❓ 퀴즈</h3>
-        <div id="quizOutput" class="ai-output">퀴즈가 여기에 표시됩니다...</div>
-    </div>
-
-    <script>
-        // 서버 기본 URL (필요시 변경)
-        const API_BASE_URL = 'http://localhost:5000';
-        
-        // 활성 작업 목록 및 자동 업데이트 관련
-        let activeTasks = {};
-        let updateInterval = null;
-        
-        // 탭 전환 기능
-        document.querySelectorAll('.tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                // 현재 활성화된 탭 비활성화
-                document.querySelector('.tab.active').classList.remove('active');
-                document.querySelector('.tab-content.active').classList.remove('active');
-                
-                // 선택한 탭 활성화
-                tab.classList.add('active');
-                document.getElementById(`${tab.dataset.tab}-tab`).classList.add('active');
-            });
-        });
-        
-        // 기본 API 호출 함수
-        async function fetchData(url, options, resultElement) {
-            try {
-                const response = await fetch(url, options);
-                const data = await response.json();
-                
-                if (resultElement) {
-                    resultElement.innerText = JSON.stringify(data, null, 2);
-                }
-                
-                // task_id 자동 입력
-                if (data.task_id) {
-                    document.getElementById('taskId').value = data.task_id;
-                    document.getElementById('aiTaskId').value = data.task_id;
-                    
-                    // 작업 목록에 추가
-                    addToActiveTasks(data.task_id);
-                    
-                    // 자동 업데이트 시작
-                    startAutoUpdate();
-                }
-                
-                return data;
-            } catch (error) {
-                if (resultElement) {
-                    resultElement.innerText = `⚠ 오류 발생: ${error.message}`;
-                }
-                console.error('API 호출 오류:', error);
-                return null;
-            }
-        }
-        
-        // 스트리밍 응답 처리 함수
-        async function fetchStreamingData(url, options, outputElement) {
-            try {
-                outputElement.textContent = "처리 중...";
-                
-                const response = await fetch(url, options);
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let text = "";
-                
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    
-                    const chunk = decoder.decode(value, { stream: true });
-                    text += chunk;
-                    outputElement.textContent = text;
-                }
-                
-                return text;
-            } catch (error) {
-                outputElement.textContent = `⚠ 오류 발생: ${error.message}`;
-                console.error('스트리밍 API 호출 오류:', error);
-                return null;
-            }
-        }
-        
-        // URL 제출 처리
-        document.getElementById('urlForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const url = document.getElementById('url').value;
-            await fetchData(`${API_BASE_URL}/process/url`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url })
-            }, document.getElementById('urlResult'));
-        });
-
-        // 단일 파일 업로드 처리
-        document.getElementById('fileForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const file = document.getElementById('file').files[0];
-            const formData = new FormData();
-            formData.append('file', file);
-            await fetchData(`${API_BASE_URL}/process/file`, {
-                method: 'POST',
-                body: formData
-            }, document.getElementById('fileResult'));
-        });
-        
-        // 드래그 앤 드롭 영역 설정
-        const dropZone = document.getElementById('dropZone');
-        const multipleFiles = document.getElementById('multipleFiles');
-        const fileList = document.getElementById('fileList');
-        const uploadButton = document.getElementById('uploadMultiple');
-        
-        // 클릭으로 파일 선택
-        dropZone.addEventListener('click', () => {
-            multipleFiles.click();
-        });
-        
-        // 드래그 앤 드롭 이벤트
-        dropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropZone.style.borderColor = '#3498db';
-        });
-        
-        dropZone.addEventListener('dragleave', () => {
-            dropZone.style.borderColor = '#ccc';
-        });
-        
-        dropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropZone.style.borderColor = '#ccc';
-            
-            if (e.dataTransfer.files.length > 0) {
-                multipleFiles.files = e.dataTransfer.files;
-                updateFileList();
-            }
-        });
-        
-        // 파일 선택 시 목록 업데이트
-        multipleFiles.addEventListener('change', updateFileList);
-        
-        function updateFileList() {
-            fileList.innerHTML = '';
-            uploadButton.disabled = multipleFiles.files.length === 0;
-            
-            Array.from(multipleFiles.files).forEach(file => {
-                const fileItem = document.createElement('div');
-                fileItem.textContent = `${file.name} (${formatFileSize(file.size)})`;
-                fileList.appendChild(fileItem);
-            });
-        }
-        
-        // 파일 크기 포맷팅
-        function formatFileSize(bytes) {
-            if (bytes < 1024) return bytes + ' B';
-            else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-            else if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
-            else return (bytes / 1073741824).toFixed(1) + ' GB';
-        }
-        
-        // 다중 파일 업로드
-        document.getElementById('uploadMultiple').addEventListener('click', async () => {
-            const files = multipleFiles.files;
-            if (files.length === 0) return;
-            
-            const formData = new FormData();
-            Array.from(files).forEach(file => {
-                formData.append('files[]', file);
-            });
-            
-            const result = await fetchData(`${API_BASE_URL}/process/batch`, {
-                method: 'POST',
-                body: formData
-            }, document.getElementById('multipleResult'));
-            
-            // 작업 ID들을 활성 작업 목록에 추가
-            if (result && result.results) {
-                result.results.forEach(item => {
-                    if (item.task_id) {
-                        addToActiveTasks(item.task_id);
-                    }
-                });
-                startAutoUpdate();
-            }
-            
-            // 파일 목록 초기화
-            multipleFiles.value = '';
-            updateFileList();
-        });
-
-        // 진행 상황 확인
-        document.getElementById('checkProgress').addEventListener('click', async () => {
-            const taskId = document.getElementById('taskId').value;
-            if (!taskId) {
-                document.getElementById('progressResult').innerText = "⚠ task_id를 입력하세요!";
-                return;
-            }
-            
-            const data = await fetchData(`${API_BASE_URL}/progress/${taskId}`, {}, document.getElementById('progressResult'));
-            updateProgressDisplay(taskId, data);
-        });
-        
-        // 전체 작업 확인
-        document.getElementById('checkAllProgress').addEventListener('click', async () => {
-            const data = await fetchData(`${API_BASE_URL}/progress/all`, {}, document.getElementById('progressResult'));
-            
-            // 모든 작업을 activeTasks에 추가
-            if (data) {
-                Object.keys(data).forEach(taskId => {
-                    addToActiveTasks(taskId, data[taskId]);
-                });
-                updateAllTaskCards();
-            }
-        });
-
-        // 작업 취소
-        document.getElementById('cancelTask').addEventListener('click', async () => {
-            const taskId = document.getElementById('taskId').value;
-            if (!taskId) {
-                document.getElementById('progressResult').innerText = "⚠ task_id를 입력하세요!";
-                return;
-            }
-            await fetchData(`${API_BASE_URL}/cancel/${taskId}`, {
-                method: 'POST'
-            }, document.getElementById('progressResult'));
-            
-            // 작업 카드 업데이트
-            updateTaskState(taskId, { status: "cancelled", message: "사용자에 의해 취소됨" });
-        });
-
-        // 결과 다운로드 버튼
-        document.getElementById('downloadAudio').addEventListener('click', () => {
-            const taskId = document.getElementById('taskId').value;
-            if (!taskId) return;
-            window.location.href = `${API_BASE_URL}/download/audio/${taskId}`;
-        });
-
-        document.getElementById('downloadResult').addEventListener('click', () => {
-            const taskId = document.getElementById('taskId').value;
-            if (!taskId) return;
-            window.location.href = `${API_BASE_URL}/download/result/${taskId}`;
-        });
-        
-        // AI 분석 버튼 이벤트
-        document.getElementById('generateSummary').addEventListener('click', async () => {
-            const taskId = document.getElementById('aiTaskId').value;
-            if (!taskId) {
-                document.getElementById('summaryOutput').innerText = "⚠ 작업 ID를 입력하세요!";
-                return;
-            }
-            
-            // 요약 생성 (스트리밍 방식)
-            await fetchStreamingData(`${API_BASE_URL}/summary`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ lecture_id: taskId, streaming: true })
-            }, document.getElementById('summaryOutput'));
-        });
-        
-        document.getElementById('generateQuiz').addEventListener('click', async () => {
-            const taskId = document.getElementById('aiTaskId').value;
-            if (!taskId) {
-                document.getElementById('quizOutput').innerText = "⚠ 작업 ID를 입력하세요!";
-                return;
-            }
-            
-            // 퀴즈 생성 (스트리밍 방식)
-            await fetchStreamingData(`${API_BASE_URL}/quizzes`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ lecture_id: taskId, streaming: true })
-            }, document.getElementById('quizOutput'));
-        });
-        
-        // 진행 상황 표시 업데이트
-        function updateProgressDisplay(taskId, data) {
-            const progressDisplay = document.getElementById('progressDisplay');
-            const downloadButtons = document.getElementById('downloadButtons');
-            
-            if (!data) {
-                progressDisplay.innerHTML = `<p class="error">작업 정보를 가져올 수 없습니다.</p>`;
-                downloadButtons.style.display = "none";
-                return;
-            }
-            
-            let statusClass = 'warning';
-            if (data.status === "completed") statusClass = 'success';
-            if (data.status === "failed" || data.status === "cancelled") statusClass = 'error';
-            
-            let html = `
-                <h3>작업 ID: ${taskId}</h3>
-                <p>상태: <span class="${statusClass}">${data.status}</span></p>
-                <p>메시지: ${data.message || '정보 없음'}</p>
-            `;
-            
-            if (data.progress !== undefined) {
-                html += `
-                    <div class="progress-bar">
-                        <div class="progress-bar-fill" style="width: ${data.progress}%">${data.progress}%</div>
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0"><i class="fas fa-rocket"></i> AI 강의 도우미 테스트</h4>
+            </div>
+            <div class="card-body">
+                <div class="row mb-4">
+                    <div class="col-lg-6 mb-3 mb-lg-0">
+                        <div class="card h-100">
+                            <div class="card-header bg-info text-white">
+                                <h5 class="mb-0"><i class="fas fa-upload"></i> 파일 업로드</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="uploadForm" enctype="multipart/form-data">
+                                    <div class="dropzone" id="dropzone">
+                                        <i class="fas fa-cloud-upload-alt"></i>
+                                        <p>파일을 끌어서 놓거나 클릭하여 선택하세요</p>
+                                        <p class="text-muted small">지원 형식: MP4, AVI, MOV, MP3, WAV</p>
+                                        <input type="file" id="fileInput" class="d-none" accept=".mp4,.avi,.mov,.mp3,.wav,.flac,.mkv,.webm">
+                                    </div>
+                                    <div class="selected-file mt-3 d-none">
+                                        <p><strong>선택된 파일:</strong> <span id="fileName"></span></p>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary w-100 mt-3">
+                                        <i class="fas fa-upload"></i> 업로드 및 처리
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
                     </div>
-                `;
-            }
-            
-            progressDisplay.innerHTML = html;
-            
-            // 작업이 완료되면 다운로드 버튼 표시
-            if (data.status === "completed" || data.status === "transcribed" || 
-                data.status === "summarized" || data.status === "quiz_generated") {
-                downloadButtons.style.display = "block";
-                
-                // 작업이 텍스트 변환 단계 이상 진행되었으면 AI 탭에 작업 ID 자동 설정
-                document.getElementById('aiTaskId').value = taskId;
-            } else {
-                downloadButtons.style.display = "none";
-            }
-        }
-        
-        // 활성 작업 관리
-        function addToActiveTasks(taskId, data) {
-            if (!activeTasks[taskId]) {
-                activeTasks[taskId] = data || { status: "pending" };
-                createTaskCard(taskId);
-            } else if (data) {
-                activeTasks[taskId] = data;
-                updateTaskCard(taskId);
-            }
-        }
-        
-        // 작업 카드 생성
-        function createTaskCard(taskId) {
-            const tasksContainer = document.getElementById('tasksContainer');
-            
-            const card = document.createElement('div');
-            card.id = `task-${taskId}`;
-            card.className = 'task-card';
-            card.innerHTML = `
-                <h3>작업 ID: ${taskId.substring(0, 8)}...</h3>
-                <div class="task-status">로딩 중...</div>
-                <div class="task-progress"></div>
-                <div class="task-actions">
-                    <button class="view-task" data-id="${taskId}">상세 보기</button>
-                    <button class="cancel-task" data-id="${taskId}">작업 취소</button>
-                    <button class="ai-analyze" data-id="${taskId}">AI 분석</button>
+
+                    <div class="col-lg-6">
+                        <div class="card h-100">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="mb-0"><i class="fab fa-youtube"></i> YouTube URL</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="urlForm">
+                                    <div class="mb-3">
+                                        <label for="youtubeUrl" class="form-label">YouTube URL 입력</label>
+                                        <div class="input-group">
+                                            <span class="input-group-text"><i class="fab fa-youtube"></i></span>
+                                            <input type="url" class="form-control" id="youtubeUrl" 
+                                                placeholder="예: https://www.youtube.com/watch?v=..." required>
+                                        </div>
+                                        <div class="form-text">음성이 포함된 유튜브 영상 URL을 입력하세요.</div>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary w-100 mt-4">
+                                        <i class="fas fa-play"></i> URL 처리 시작
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            `;
-            
-            tasksContainer.appendChild(card);
-            
-            // 버튼 이벤트 연결
-            card.querySelector('.view-task').addEventListener('click', () => {
-                document.getElementById('taskId').value = taskId;
-                document.getElementById('checkProgress').click();
-            });
-            
-            card.querySelector('.cancel-task').addEventListener('click', async () => {
-                document.getElementById('taskId').value = taskId;
-                document.getElementById('cancelTask').click();
-            });
-            
-            card.querySelector('.ai-analyze').addEventListener('click', () => {
-                // AI 분석 탭으로 전환하고 작업 ID 설정
-                document.querySelector('.tab[data-tab="ai"]').click();
-                document.getElementById('aiTaskId').value = taskId;
-            });
-            
-            // 작업 상태 업데이트
-            fetchTaskStatus(taskId);
-        }
-        
-        // 작업 카드 업데이트
-        function updateTaskCard(taskId) {
-            const card = document.getElementById(`task-${taskId}`);
-            if (!card) return;
-            
-            const data = activeTasks[taskId];
-            if (!data) return;
-            
-            const statusElement = card.querySelector('.task-status');
-            const progressElement = card.querySelector('.task-progress');
-            
-            let statusClass = 'warning';
-            if (data.status === "completed") statusClass = 'success';
-            if (data.status === "failed" || data.status === "cancelled") statusClass = 'error';
-            
-            statusElement.innerHTML = `
-                <p>상태: <span class="${statusClass}">${data.status}</span></p>
-                <p>메시지: ${data.message || '정보 없음'}</p>
-            `;
-            
-            if (data.progress !== undefined) {
-                progressElement.innerHTML = `
-                    <div class="progress-bar">
-                        <div class="progress-bar-fill" style="width: ${data.progress}%">${data.progress}%</div>
+
+                <!-- 진행 상황 영역 -->
+                <div id="progressContainer" class="mt-4 d-none">
+                    <div class="card">
+                        <div class="card-header bg-success text-white">
+                            <h5 class="mb-0"><i class="fas fa-tasks"></i> 처리 진행 상황</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span id="progressStatus">준비 중...</span>
+                                <span id="progressPercent">0%</span>
+                            </div>
+                            <div class="progress mb-4">
+                                <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                                    role="progressbar" style="width: 0%"></div>
+                            </div>
+
+                            <div id="progressMessage" class="text-muted mb-3"></div>
+
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <span class="badge bg-info" id="taskIdBadge"></span>
+                                </div>
+                                <div>
+                                    <button id="cancelBtn" class="btn btn-sm btn-outline-danger">
+                                        <i class="fas fa-times"></i> 취소
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                `;
-            }
-            
-            // 완료된 작업은 취소 버튼 비활성화
-            if (data.status === "completed" || data.status === "failed" || data.status === "cancelled") {
-                const cancelButton = card.querySelector('.cancel-task');
-                if (cancelButton) {
-                    cancelButton.disabled = true;
-                }
-            }
-            
-            // 다운로드 버튼 추가 (완료된 경우)
-            if ((data.status === "completed" || data.status === "transcribed") && 
-                !card.querySelector('.download-buttons')) {
-                const actionsElement = card.querySelector('.task-actions');
-                const downloadButtons = document.createElement('div');
-                downloadButtons.className = 'download-buttons';
-                downloadButtons.innerHTML = `
-                    <button class="download-audio" data-id="${taskId}">오디오 다운로드</button>
-                    <button class="download-result" data-id="${taskId}">결과 다운로드</button>
-                `;
-                actionsElement.appendChild(downloadButtons);
-                
-                // 다운로드 버튼 이벤트 연결
-                downloadButtons.querySelector('.download-audio').addEventListener('click', () => {
-                    window.location.href = `${API_BASE_URL}/download/audio/${taskId}`;
-                });
-                
-                downloadButtons.querySelector('.download-result').addEventListener('click', () => {
-                    window.location.href = `${API_BASE_URL}/download/result/${taskId}`;
-                });
-            }
-        }
-        
-        // 단일 작업 상태 업데이트
-        function updateTaskState(taskId, data) {
-            if (activeTasks[taskId]) {
-                Object.assign(activeTasks[taskId], data);
-                updateTaskCard(taskId);
-            }
-        }
-        
-        // 작업 상태 가져오기
-        async function fetchTaskStatus(taskId) {
-            try {
-                const response = await fetch(`${API_BASE_URL}/progress/${taskId}`);
-                const data = await response.json();
-                
-                if (data && !data.error) {
-                    activeTasks[taskId] = data;
-                    updateTaskCard(taskId);
-                }
-            } catch (error) {
-                console.error(`작업 ${taskId} 상태 가져오기 실패:`, error);
-            }
-        }
-        
-        // 모든 작업 카드 업데이트
-        function updateAllTaskCards() {
-            for (const taskId in activeTasks) {
-                if (!document.getElementById(`task-${taskId}`)) {
-                    createTaskCard(taskId);
-                } else {
-                    updateTaskCard(taskId);
-                }
-            }
-        }
-        
-        // 자동 업데이트 시작
-        function startAutoUpdate() {
-            if (!updateInterval) {
-                updateInterval = setInterval(() => {
-                    const taskIds = Object.keys(activeTasks);
-                    if (taskIds.length === 0) {
-                        clearInterval(updateInterval);
-                        updateInterval = null;
-                        return;
-                    }
+                </div>
+
+                <!-- 결과 영역 -->
+                <div id="resultContainer" class="mt-4 d-none">
+                    <div class="card">
+                        <div class="card-header bg-success text-white">
+                            <h5 class="mb-0"><i class="fas fa-check-circle"></i> 처리 결과</h5>
+                        </div>
+                        <div class="card-body">
+                            <ul class="nav nav-tabs" id="resultTabs" role="tablist">
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link active" id="transcription-tab" data-bs-toggle="tab" 
+                                        data-bs-target="#transcription" type="button" role="tab">
+                                        <i class="fas fa-file-alt"></i> 변환 텍스트
+                                    </button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="summary-tab" data-bs-toggle="tab" 
+                                        data-bs-target="#summary" type="button" role="tab">
+                                        <i class="fas fa-align-left"></i> 요약
+                                    </button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="quiz-tab" data-bs-toggle="tab" 
+                                        data-bs-target="#quiz" type="button" role="tab">
+                                        <i class="fas fa-question-circle"></i> 퀴즈
+                                    </button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="study-plan-tab" data-bs-toggle="tab" 
+                                        data-bs-target="#study-plan" type="button" role="tab">
+                                        <i class="fas fa-calendar-alt"></i> 학습 계획
+                                    </button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="download-tab" data-bs-toggle="tab" 
+                                        data-bs-target="#download" type="button" role="tab">
+                                        <i class="fas fa-download"></i> 다운로드
+                                    </button>
+                                </li>
+                            </ul>
+                            <div class="tab-content p-3" id="resultTabsContent">
+                                <div class="tab-pane fade show active" id="transcription" role="tabpanel">
+                                    <div class="streaming-container" id="transcriptionText">
+                                        <div class="loader"></div>
+                                        <p class="text-center text-muted">텍스트 변환 결과 로딩 중...</p>
+                                    </div>
+                                </div>
+                                <div class="tab-pane fade" id="summary" role="tabpanel">
+                                    <div class="streaming-container" id="summaryText">
+                                        <div class="d-grid gap-2 mb-4">
+                                            <button class="btn btn-primary" id="generateSummaryBtn">
+                                                <i class="fas fa-align-left"></i> 요약 생성하기
+                                            </button>
+                                            <a id="goToSummaryPageBtn" class="btn btn-outline-primary">
+                                                <i class="fas fa-external-link-alt"></i> 요약 페이지로 이동
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tab-pane fade" id="quiz" role="tabpanel">
+                                    <div class="streaming-container" id="quizText">
+                                        <div class="d-grid gap-2 mb-4">
+                                            <button class="btn btn-primary" id="generateQuizBtn">
+                                                <i class="fas fa-question-circle"></i> 퀴즈 생성하기
+                                            </button>
+                                            <a id="goToQuizPageBtn" class="btn btn-outline-primary">
+                                                <i class="fas fa-external-link-alt"></i> 퀴즈 페이지로 이동
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tab-pane fade" id="study-plan" role="tabpanel">
+                                    <div class="streaming-container" id="studyPlanText">
+                                        <div class="d-grid gap-2 mb-4">
+                                            <button class="btn btn-primary" id="generatePlanBtn">
+                                                <i class="fas fa-calendar-alt"></i> 학습 계획 생성하기
+                                            </button>
+                                            <a id="goToStudyPlanPageBtn" class="btn btn-outline-primary">
+                                                <i class="fas fa-external-link-alt"></i> 학습 계획 페이지로 이동
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tab-pane fade" id="download" role="tabpanel">
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <div class="card">
+                                                <div class="card-body text-center">
+                                                    <i class="fas fa-file-audio fa-3x text-primary mb-3"></i>
+                                                    <h5>처리된 오디오</h5>
+                                                    <p class="text-muted">추출된 MP3 파일 다운로드</p>
+                                                    <a id="downloadAudioBtn" class="btn btn-outline-primary mt-2" target="_blank">
+                                                        <i class="fas fa-download"></i> 오디오 다운로드
+                                                    </a>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <div class="card">
+                                                <div class="card-body text-center">
+                                                    <i class="fas fa-file-alt fa-3x text-success mb-3"></i>
+                                                    <h5>텍스트 결과</h5>
+                                                    <p class="text-muted">모든 결과가 포함된 JSON 파일</p>
+                                                    <a id="downloadResultBtn" class="btn btn-outline-success mt-2" target="_blank">
+                                                        <i class="fas fa-download"></i> 결과 다운로드
+                                                    </a>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     
-                    // 진행 중인 작업만 업데이트
-                    taskIds.forEach(taskId => {
-                        const task = activeTasks[taskId];
-                        if (task && task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-                            fetchTaskStatus(taskId);
-                        }
-                    });
-                }, 3000); // 3초마다 업데이트
-            }
+                    <!-- AI 튜터 질문 영역 -->
+                    <div class="card mt-4">
+                        <div class="card-header bg-info text-white">
+                            <h5 class="mb-0"><i class="fas fa-robot"></i> AI 튜터 - 질문하기</h5>
+                        </div>
+                        <div class="card-body">
+                            <form id="questionForm">
+                                <div class="mb-3">
+                                    <label for="questionInput" class="form-label">강의 내용에 대해 질문하기</label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" id="questionInput" 
+                                            placeholder="강의에 대한 질문을 입력하세요..." required>
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="fas fa-paper-plane"></i> 질문
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
+                            <div class="streaming-container mt-3" id="conversationContainer">
+                                <p class="text-center text-muted">강의 내용에 대해 질문해보세요.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+    let currentTaskId = null;
+    let progressInterval = null;
+    let currentLectureId = null;
+
+    // 드롭존 이벤트 설정
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    
+    dropzone.addEventListener('click', () => {
+        fileInput.click();
+    });
+    
+    dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+    });
+    
+    dropzone.addEventListener('dragleave', () => {
+        dropzone.classList.remove('dragover');
+    });
+    
+    dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        
+        if (e.dataTransfer.files.length > 0) {
+            fileInput.files = e.dataTransfer.files;
+            updateSelectedFile();
+        }
+    });
+    
+    fileInput.addEventListener('change', updateSelectedFile);
+    
+    function updateSelectedFile() {
+        const fileName = fileInput.files.length > 0 ? fileInput.files[0].name : '';
+        
+        if (fileName) {
+            document.getElementById('fileName').textContent = fileName;
+            document.querySelector('.selected-file').classList.remove('d-none');
+        } else {
+            document.querySelector('.selected-file').classList.add('d-none');
+        }
+    }
+
+    // 파일 업로드 폼 제출
+    document.getElementById('uploadForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const file = fileInput.files[0];
+        if (!file) {
+            showAlert('파일을 선택해주세요.', 'warning');
+            return;
         }
         
-        // 페이지 로드 시 서버 상태 확인
-        async function checkServerStatus() {
-            try {
-                const response = await fetch(`${API_BASE_URL}/health`);
-                const data = await response.json();
-                console.log('서버 상태:', data);
-            } catch (error) {
-                console.error('서버 연결 실패:', error);
-                alert('서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.');
-            }
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        uploadFile(formData);
+    });
+
+    // URL 폼 제출
+    document.getElementById('urlForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const url = document.getElementById('youtubeUrl').value.trim();
+        if (!url) {
+            showAlert('URL을 입력해주세요.', 'warning');
+            return;
         }
         
-        // 페이지 로드 시 실행
-        window.addEventListener('load', () => {
-            checkServerStatus();
+        processUrl(url);
+    });
+
+    // 파일 업로드 함수
+    function uploadFile(formData) {
+        showProgress();
+        
+        fetch('/process/file', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            // 응답 구조 디버깅
+            console.log('Server response:', data);
+            
+            // 배열 형태의 응답 처리
+            if (Array.isArray(data)) {
+                data = data[0]; // 첫 번째 요소가 실제 응답 객체
+            }
+            
+            if (data.error) {
+                throw new Error(data.error || '파일 업로드 실패');
+            }
+            
+            // 다양한 경로로 task_id 찾기
+            let taskId = null;
+            
+            if (data.task_id) {
+                taskId = data.task_id;
+            } else if (data.data && data.data.task_id) {
+                taskId = data.data.task_id;
+            }
+            
+            if (!taskId) {
+                console.error('Response structure:', JSON.stringify(data, null, 2));
+                throw new Error('서버에서 task_id를 찾을 수 없습니다. 응답 구조를 확인하세요.');
+            }
+            
+            currentTaskId = taskId;
+            document.getElementById('taskIdBadge').textContent = `작업 ID: ${currentTaskId}`;
+            
+            // 진행상황 폴링 시작
+            startProgressPolling(currentTaskId);
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            hideProgress();
+            showAlert(`업로드 실패: ${error.message}`, 'danger');
         });
-    </script>
-</body>
-</html>
+    }
+
+    // URL 처리 함수도 같은 방식으로 수정
+    function processUrl(url) {
+        showProgress();
+        
+        fetch('/process/url', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ url: url })
+        })
+        .then(response => response.json())
+        .then(data => {
+            // 응답 구조 디버깅
+            console.log('Server response:', data);
+            
+            // 배열 형태의 응답 처리
+            if (Array.isArray(data)) {
+                data = data[0]; // 첫 번째 요소가 실제 응답 객체
+            }
+            
+            if (data.error) {
+                throw new Error(data.error || 'URL 처리 실패');
+            }
+            
+            // 다양한 경로로 task_id 찾기
+            let taskId = null;
+            
+            if (data.task_id) {
+                taskId = data.task_id;
+            } else if (data.data && data.data.task_id) {
+                taskId = data.data.task_id;
+            }
+            
+            if (!taskId) {
+                console.error('Response structure:', JSON.stringify(data, null, 2));
+                throw new Error('서버에서 task_id를 찾을 수 없습니다. 응답 구조를 확인하세요.');
+            }
+            
+            currentTaskId = taskId;
+            document.getElementById('taskIdBadge').textContent = `작업 ID: ${currentTaskId}`;
+            
+            // 진행상황 폴링 시작
+            startProgressPolling(currentTaskId);
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            hideProgress();
+            showAlert(`URL 처리 실패: ${error.message}`, 'danger');
+        });
+    }
+
+    // 진행상황 폴링 함수
+    function startProgressPolling(taskId) {
+        // 이전 인터벌 클리어
+        if (progressInterval) {
+            clearInterval(progressInterval);
+        }
+        
+        progressInterval = setInterval(() => {
+            fetch(`/progress/${taskId}`)
+            .then(response => response.json())
+            .then(data => {
+                updateProgressUI(data);
+                
+                // 완료 또는 실패 시 폴링 중단
+                if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
+                    clearInterval(progressInterval);
+                    
+                    if (data.status === 'completed') {
+                        showResult(taskId);
+                        currentLectureId = taskId; // 결과 조회용 ID 저장
+                    } else if (data.status === 'failed') {
+                        showAlert(`처리 실패: ${data.message}`, 'danger');
+                    } else if (data.status === 'cancelled') {
+                        showAlert('작업이 취소되었습니다.', 'warning');
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Progress check error:', error);
+                // 에러가 계속되면 폴링 중단
+                clearInterval(progressInterval);
+                showAlert('진행 상황 확인 중 오류가 발생했습니다.', 'danger');
+            });
+        }, 2000); // 2초마다 확인
+    }
+
+    // 진행 상황 UI 업데이트
+    function updateProgressUI(data) {
+        const progressBar = document.getElementById('progressBar');
+        const progressPercent = document.getElementById('progressPercent');
+        const progressStatus = document.getElementById('progressStatus');
+        const progressMessage = document.getElementById('progressMessage');
+        
+        // 진행률 업데이트
+        progressBar.style.width = `${data.progress}%`;
+        progressPercent.textContent = `${data.progress}%`;
+        
+        // 상태 텍스트 업데이트
+        let statusText = '준비 중...';
+        
+        switch (data.status) {
+            case 'queued':
+                statusText = '대기열에 추가됨';
+                break;
+            case 'downloading':
+                statusText = '다운로드 중';
+                break;
+            case 'processing':
+                statusText = '오디오 추출 중';
+                break;
+            case 'ai_processing':
+                statusText = 'AI 변환 중';
+                break;
+            case 'transcribed':
+                statusText = '변환 완료';
+                break;
+            case 'summarizing':
+                statusText = '요약 생성 중';
+                break;
+            case 'summarized':
+                statusText = '요약 완료';
+                break;
+            case 'quiz_generating':
+                statusText = '퀴즈 생성 중';
+                break;
+            case 'plan_generating':
+                statusText = '학습 계획 생성 중';
+                break;
+            case 'completed':
+                statusText = '처리 완료';
+                break;
+            case 'failed':
+                statusText = '처리 실패';
+                progressBar.classList.remove('bg-primary');
+                progressBar.classList.add('bg-danger');
+                break;
+            case 'cancelled':
+                statusText = '취소됨';
+                progressBar.classList.remove('bg-primary');
+                progressBar.classList.add('bg-warning');
+                break;
+        }
+        
+        progressStatus.textContent = statusText;
+        progressMessage.textContent = data.message || '';
+    }
+
+    // 진행 상황 표시
+    function showProgress() {
+        document.getElementById('progressContainer').classList.remove('d-none');
+        document.getElementById('resultContainer').classList.add('d-none');
+        
+        // 취소 버튼 이벤트 연결
+        document.getElementById('cancelBtn').addEventListener('click', cancelTask);
+    }
+
+    // 진행 상황 숨기기
+    function hideProgress() {
+        document.getElementById('progressContainer').classList.add('d-none');
+    }
+
+    // 작업 취소
+    function cancelTask() {
+        if (!currentTaskId) return;
+        
+        fetch(`/cancel/${currentTaskId}`, {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            showAlert('작업 취소 요청을 보냈습니다. 잠시 기다려주세요.', 'info');
+        })
+        .catch(error => {
+            console.error('Cancel error:', error);
+            showAlert('작업 취소 요청 실패', 'danger');
+        });
+    }
+
+    // 결과 표시
+    function showResult(taskId) {
+        // 결과 컨테이너 표시
+        document.getElementById('resultContainer').classList.remove('d-none');
+        
+        // 다운로드 링크 설정
+        document.getElementById('downloadAudioBtn').href = `/download/audio/${taskId}`;
+        document.getElementById('downloadResultBtn').href = `/download/result/${taskId}`;
+        
+        // 텍스트 변환 결과 로드
+        loadTranscriptionResult(taskId);
+        
+        // 버튼 이벤트 연결
+        document.getElementById('generateSummaryBtn').addEventListener('click', () => generateSummary(taskId));
+        document.getElementById('generateQuizBtn').addEventListener('click', () => generateQuiz(taskId));
+        document.getElementById('generatePlanBtn').addEventListener('click', () => generateStudyPlan(taskId));
+        
+        // 페이지 이동 버튼 링크 설정
+        document.getElementById('goToSummaryPageBtn').href = `/summary?lecture_id=${taskId}`;
+        document.getElementById('goToQuizPageBtn').href = `/quizzes?lecture_id=${taskId}`;
+        document.getElementById('goToStudyPlanPageBtn').href = `/study-plan?lecture_id=${taskId}`;
+        
+        // 질문 폼 설정
+        document.getElementById('questionForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const question = document.getElementById('questionInput').value.trim();
+            if (question) {
+                askQuestion(taskId, question);
+                document.getElementById('questionInput').value = '';
+            }
+        });
+        
+        // localStorage에 현재 작업 ID 저장
+        localStorage.setItem('currentTaskId', taskId);
+    }
+
+    // 변환 텍스트 결과 로드
+    function loadTranscriptionResult(taskId) {
+        fetch(`/ai/transcribe`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ task_id: taskId })
+        })
+        .then(response => response.json())
+        .then(data => {
+            const container = document.getElementById('transcriptionText');
+            container.innerHTML = `<p>${data.transcribed_text.replace(/\n/g, '<br>')}</p>`;
+        })
+        .catch(error => {
+            console.error('Transcription load error:', error);
+            document.getElementById('transcriptionText').innerHTML = 
+                '<p class="text-danger">텍스트 결과를 불러오는 데 실패했습니다.</p>';
+        });
+    }
+
+    // 요약 생성
+    function generateSummary(taskId) {
+        const container = document.getElementById('summaryText');
+        container.innerHTML = '<div class="loader"></div><p class="text-center text-muted">요약 생성 중...</p>';
+        
+        // fetch API를 사용한 스트리밍
+        fetch('/summary', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ lecture_id: taskId, streaming: true })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('요약 생성 요청 실패');
+            }
+            
+            const reader = response.body.getReader();
+            let summaryContent = '';
+            
+            function processStream({ done, value }) {
+                if (done) {
+                    return;
+                }
+                
+                // 수신된 데이터 처리
+                const chunk = new TextDecoder().decode(value);
+                summaryContent += chunk;
+                container.innerHTML = `<p>${summaryContent.replace(/\n/g, '<br>')}</p>`;
+                
+                // 다음 데이터 청크 읽기
+                return reader.read().then(processStream);
+            }
+            
+            return reader.read().then(processStream);
+        })
+        .catch(error => {
+            console.error('Summary generation error:', error);
+            container.innerHTML = '<p class="text-danger">요약 생성에 실패했습니다.</p>';
+        });
+    }
+
+    // 퀴즈 생성
+    function generateQuiz(taskId) {
+        const container = document.getElementById('quizText');
+        container.innerHTML = '<div class="loader"></div><p class="text-center text-muted">퀴즈 생성 중...</p>';
+        
+        // 요약 API 호출 후 퀴즈 생성
+        fetch(`/quizzes`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ lecture_id: taskId, streaming: true })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('퀴즈 생성 요청 실패');
+            }
+            
+            const reader = response.body.getReader();
+            let quizContent = '';
+            
+            function processStream({ done, value }) {
+                if (done) {
+                    return;
+                }
+                
+                // 수신된 데이터 처리
+                const chunk = new TextDecoder().decode(value);
+                quizContent += chunk;
+                container.innerHTML = `<p>${quizContent.replace(/\n/g, '<br>')}</p>`;
+                
+                // 다음 데이터 청크 읽기
+                return reader.read().then(processStream);
+            }
+            
+            return reader.read().then(processStream);
+        })
+        .catch(error => {
+            console.error('Quiz generation error:', error);
+            container.innerHTML = '<p class="text-danger">퀴즈 생성에 실패했습니다.</p>';
+        });
+    }
+
+    // 학습 계획 생성
+    function generateStudyPlan(taskId) {
+        const container = document.getElementById('studyPlanText');
+        container.innerHTML = '<div class="loader"></div><p class="text-center text-muted">학습 계획 생성 중...</p>';
+        
+        fetch(`/study-plan`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ lecture_id: taskId, streaming: true })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('학습 계획 생성 요청 실패');
+            }
+            
+            const reader = response.body.getReader();
+            let planContent = '';
+            
+            function processStream({ done, value }) {
+                if (done) {
+                    return;
+                }
+                
+                // 수신된 데이터 처리
+                const chunk = new TextDecoder().decode(value);
+                planContent += chunk;
+                container.innerHTML = `<p>${planContent.replace(/\n/g, '<br>')}</p>`;
+                
+                // 다음 데이터 청크 읽기
+                return reader.read().then(processStream);
+            }
+            
+            return reader.read().then(processStream);
+        })
+        .catch(error => {
+            console.error('Study plan generation error:', error);
+            container.innerHTML = '<p class="text-danger">학습 계획 생성에 실패했습니다.</p>';
+        });
+    }
+
+    // 질문하기
+    function askQuestion(taskId, question) {
+        const container = document.getElementById('conversationContainer');
+        
+        // 사용자 질문 표시
+        if (container.querySelector('p.text-center.text-muted')) {
+            container.innerHTML = ''; // 처음 메시지 제거
+        }
+        
+        const userQuestion = document.createElement('div');
+        userQuestion.className = 'mb-3';
+        userQuestion.innerHTML = `
+            <div class="d-flex align-items-start">
+                <div class="me-2">
+                    <span class="badge bg-primary">Q</span>
+                </div>
+                <div class="flex-grow-1">
+                    <p class="mb-0"><strong>질문:</strong> ${question}</p>
+                </div>
+            </div>
+        `;
+        container.appendChild(userQuestion);
+        
+        // AI 응답 영역 생성
+        const aiAnswer = document.createElement('div');
+        aiAnswer.className = 'mb-4';
+        aiAnswer.innerHTML = `
+            <div class="d-flex align-items-start">
+                <div class="me-2">
+                    <span class="badge bg-success">A</span>
+                </div>
+                <div class="flex-grow-1">
+                    <p class="mb-0"><strong>답변:</strong> <span id="ai-response">생각 중...</span></p>
+                </div>
+            </div>
+        `;
+        container.appendChild(aiAnswer);
+        
+        // 응답 영역으로 스크롤
+        container.scrollTop = container.scrollHeight;
+        
+        // API 호출
+        fetch(`/query`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ task_id: taskId, question: question })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('질문 처리 요청 실패');
+            }
+            
+            const reader = response.body.getReader();
+            let responseContent = '';
+            const responseElement = aiAnswer.querySelector('#ai-response');
+            
+            function processStream({ done, value }) {
+                if (done) {
+                    return;
+                }
+                
+                // 수신된 데이터 처리
+                const chunk = new TextDecoder().decode(value);
+                responseContent += chunk;
+                responseElement.textContent = responseContent;
+                
+                // 다음 데이터 청크 읽기
+                return reader.read().then(processStream);
+            }
+            
+            return reader.read().then(processStream);
+        })
+        .catch(error => {
+            console.error('Question error:', error);
+            aiAnswer.querySelector('#ai-response').innerHTML = 
+                '<span class="text-danger">응답을 받아오는 데 실패했습니다.</span>';
+        });
+    }
+
+    // 페이지 로드 시 작업 목록 확인
+    window.addEventListener('DOMContentLoaded', function() {
+        // localStorage에서 이전 작업 ID 복원
+        const savedTaskId = localStorage.getItem('currentTaskId');
+        if (savedTaskId) {
+            // 상태 확인
+            fetch(`/progress/${savedTaskId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data && (data.status === 'completed' || data.status === 'transcribed')) {
+                    currentTaskId = savedTaskId;
+                    currentLectureId = savedTaskId;
+                    showResult(savedTaskId);
+                }
+            })
+            .catch(error => {
+                console.error('Error checking saved task:', error);
+                localStorage.removeItem('currentTaskId');
+            });
+        }
+    });
+</script>
+{% endblock %}

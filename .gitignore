@@ -3,3 +3,9 @@ venv/
 __pycache__/
 *.pyc
 .DS_Store
+
+# 환경 변수 제외
+.env
+
+# 비공개 파일 제외
+*.key

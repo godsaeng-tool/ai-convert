@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+
+{% block title %}AI 강의 도우미 - 요약 생성{% endblock %}
+
+{% block nav_lectures_active %}active{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center fade-in">
+    <div class="col-md-10">
+        <div class="alert-container mb-4"></div>
+
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0"><i class="fas fa-align-left"></i> 강의 요약 생성</h4>
+            </div>
+            <div class="card-body">
+                <div class="card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0"><i class="fas fa-book"></i> 강의 선택</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="lectureSelect" class="form-label">요약할 강의 선택</label>
+                            <select class="form-select" id="lectureSelect">
+                                <option value="" selected disabled>강의를 선택하세요</option>
+                                <!-- 여기에 강의 목록이 동적으로 추가됩니다 -->
+                            </select>
+                        </div>
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-primary" id="generateBtn" disabled>
+                                <i class="fas fa-magic"></i> 요약 생성하기
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 로딩 표시 -->
+                <div id="loadingContainer" class="d-none">
+                    <div class="text-center my-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-3 text-muted" id="loadingMessage">요약 생성 중...</p>
+                    </div>
+                </div>
+
+                <!-- 결과 영역 -->
+                <div id="resultContainer" class="d-none">
+                    <div class="card">
+                        <div class="card-header bg-success text-white">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0"><i class="fas fa-align-left"></i> <span id="lectureTitleDisplay"></span> - 요약 결과</h5>
+                                <div>
+                                    <button class="btn btn-sm btn-light" id="copyBtn" title="복사하기">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-light ms-2" id="downloadBtn" title="다운로드">
+                                        <i class="fas fa-download"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="streaming-container" id="summaryText">
+                                <p class="text-center text-muted">강의 요약이 여기에 표시됩니다.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 추가 작업 버튼 -->
+                    <div class="d-flex justify-content-center mt-4">
+                        <div class="btn-group">
+                            <a id="quizBtn" class="btn btn-outline-primary">
+                                <i class="fas fa-question-circle"></i> 퀴즈 생성하기
+                            </a>
+                            <a id="studyPlanBtn" class="btn btn-outline-success">
+                                <i class="fas fa-calendar-alt"></i> 학습 계획 생성하기
+                            </a>
+                            <a id="tutorBtn" class="btn btn-outline-info">
+                                <i class="fas fa-robot"></i> AI 튜터와 대화하기
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentLectureId = null;
+    let currentLectureTitle = '';
+
+    // 페이지 로드 시 강의 목록 가져오기
+    window.addEventListener('DOMContentLoaded', function() {
+        loadLectures();
+    });
+
+    // 강의 목록 로드
+    function loadLectures() {
+        fetch('/lectures')
+            .then(response => response.json())
+            .then(data => {
+                const select = document.getElementById('lectureSelect');
+                
+                // 기존 옵션 제거 (첫 번째 옵션 제외)
+                while (select.options.length > 1) {
+                    select.remove(1);
+                }
+                
+                // 강의 목록 추가
+                data.forEach(lecture => {
+                    const option = document.createElement('option');
+                    option.value = lecture.id;
+                    option.textContent = lecture.title;
+                    option.dataset.title = lecture.title;
+                    select.appendChild(option);
+                });
+                
+                // 버튼 활성화
+                select.addEventListener('change', function() {
+                    const generateBtn = document.getElementById('generateBtn');
+                    generateBtn.disabled = !this.value;
+                    
+                    if (this.value) {
+                        currentLectureId = this.value;
+                        currentLectureTitle = this.options[this.selectedIndex].dataset.title;
+                    }
+                });
+            })
+            .catch(error => {
+                console.error('Error loading lectures:', error);
+                showAlert('강의 목록을 불러오는데 실패했습니다.', 'danger');
+            });
+    }
+
+    // 요약 생성 버튼 이벤트
+    document.getElementById('generateBtn').addEventListener('click', function() {
+        if (!currentLectureId) return;
+        
+        // 로딩 표시
+        document.getElementById('loadingContainer').classList.remove('d-none');
+        document.getElementById('resultContainer').classList.add('d-none');
+        
+        // 요약 생성 API 호출
+        generateSummary(currentLectureId);
+    });
+
+    // 요약 생성 함수
+    function generateSummary(lectureId) {
+        const summaryContainer = document.getElementById('summaryText');
+        const loadingContainer = document.getElementById('loadingContainer');
+        const resultContainer = document.getElementById('resultContainer');
+        
+        // 스트리밍 방식 요청
+        fetch('/summary', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ lecture_id: lectureId, streaming: true })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('요약 생성 요청 실패');
+            }
+            
+            // 제목 표시
+            document.getElementById('lectureTitleDisplay').textContent = currentLectureTitle;
+            
+            // 리더 설정
+            const reader = response.body.getReader();
+            let summaryContent = '';
+            
+            // 로딩 숨기고 결과 컨테이너 표시
+            loadingContainer.classList.add('d-none');
+            resultContainer.classList.remove('d-none');
+            
+            // 버튼 URL 설정
+            document.getElementById('quizBtn').href = `/quizzes?lecture_id=${lectureId}`;
+            document.getElementById('studyPlanBtn').href = `/study-plan?lecture_id=${lectureId}`;
+            document.getElementById('tutorBtn').href = `/?task_id=${lectureId}#ai-tutor`;
+            
+            // 초기 결과 영역 설정
+            summaryContainer.innerHTML = '<p>요약 생성 중...</p>';
+            
+            function processStream({ done, value }) {
+                if (done) {
+                    return;
+                }
+                
+                // 수신된 데이터 처리
+                const chunk = new TextDecoder().decode(value);
+                summaryContent += chunk;
+                summaryContainer.innerHTML = `<p>${summaryContent.replace(/\n/g, '<br>')}</p>`;
+                
+                // 다음 데이터 청크 읽기
+                return reader.read().then(processStream);
+            }
+            
+            return reader.read().then(processStream);
+        })
+        .catch(error => {
+            console.error('Summary generation error:', error);
+            loadingContainer.classList.add('d-none');
+            showAlert('요약 생성에 실패했습니다.', 'danger');
+        });
+    }
+
+    // 복사 버튼 이벤트
+    document.getElementById('copyBtn').addEventListener('click', function() {
+        const summaryText = document.getElementById('summaryText').innerText;
+        
+        navigator.clipboard.writeText(summaryText)
+            .then(() => {
+                showAlert('요약 내용이 클립보드에 복사되었습니다.', 'success');
+            })
+            .catch(err => {
+                console.error('복사 실패:', err);
+                showAlert('복사에 실패했습니다.', 'danger');
+            });
+    });
+
+    // 다운로드 버튼 이벤트
+    document.getElementById('downloadBtn').addEventListener('click', function() {
+        if (!currentLectureId) return;
+        
+        const summaryText = document.getElementById('summaryText').innerText;
+        const blob = new Blob([summaryText], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        
+        a.href = url;
+        a.download = `요약_${currentLectureTitle}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        
+        // 정리
+        setTimeout(() => {
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }, 100);
+    });
+</script>
+{% endblock %}

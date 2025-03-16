@@ -1,493 +1,140 @@
-from flask import Flask, request, jsonify, send_file, render_template
+from flask import Flask, request, jsonify, send_file, render_template, Response, stream_with_context
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
-import whisper
 import uuid
-import subprocess
-import threading
-import yt_dlp
 import time
-import logging
 import json
-import shutil
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 import atexit
-import re
-import queue
-import openai
 
-OPENAI_API_KEY = "키 넣어주세요"
-openai.api_key = OPENAI_API_KEY
-
-# 로깅 설정
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("lecture_processor.log", encoding='utf-8'),
-        logging.StreamHandler()
-    ]
+# 설정 및 유틸리티 모듈 가져오기
+from config import (
+    logger, UPLOAD_FOLDER, PROCESSED_FOLDER, RESULTS_FOLDER, DATA_FOLDER,
+    MAX_CONTENT_LENGTH, MAX_WORKERS, ALLOWED_EXTENSIONS
 )
-logger = logging.getLogger("lecture_processor")
+from utils.queue_worker import (
+    task_queue, update_progress, get_progress, get_all_progress,
+    worker_function, start_workers, stop_workers
+)
+from utils.file_utils import allowed_file, save_uploaded_file, sanitize_filename
+from utils.api_utils import format_response, create_error_response, create_success_response
 
+# 처리 함수 가져오기
+from main_processor import process_lecture
+
+# AI 서비스 모듈 가져오기
+from ai_services.generation import (
+    stream_summary, stream_quiz, stream_study_plan, 
+    generate_summary, generate_quiz, generate_study_plan, global_summary
+)
+from ai_services.vector_db import (
+    index_lecture_text, generate_streaming_answer
+)
+
+# Flask 앱 초기화
 app = Flask(__name__)
 CORS(app)
 
-# 설정 변수
-UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
-PROCESSED_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'processed')
-RESULTS_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results')
-ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv', 'webm', 'mp3', 'wav', 'flac', 'm4a'}
-MAX_CONTENT_LENGTH = 5 * 1024 * 1024 * 1024  # 5GB 제한
-
-# 폴더 생성
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(PROCESSED_FOLDER, exist_ok=True)
-os.makedirs(RESULTS_FOLDER, exist_ok=True)
-
+# 설정 적용
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['PROCESSED_FOLDER'] = PROCESSED_FOLDER
 app.config['RESULTS_FOLDER'] = RESULTS_FOLDER
+app.config['DATA_FOLDER'] = DATA_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
+app.config['ALLOWED_EXTENSIONS'] = ALLOWED_EXTENSIONS
 
-# 진행 상황 추적용 딕셔너리
-progress_tracker = {}
-lock = threading.Lock()
+# 작업 처리 워커 시작 - 메인 프로세서 설정
+worker = worker_function(process_lecture)
+worker_threads = start_workers(worker, MAX_WORKERS)
 
-# 작업 큐 생성
-task_queue = queue.Queue()
+# 종료 시 정리 함수
+@atexit.register
+def cleanup():
+    """애플리케이션 종료 시 정리"""
+    stop_workers(MAX_WORKERS)
 
-# ThreadPoolExecutor 생성 (전역 변수로 설정)
-executor = ThreadPoolExecutor(max_workers=4)
-
-def sanitize_filename(filename):
-    """파일명에서 시스템에 문제가 될 수 있는 특수문자 제거"""
-    # 특수문자 및 공백 제거, 영숫자와 일부 안전한 문자만 허용
-    sanitized = re.sub(r'[^\w\-_.]', '_', filename)
-    return sanitized
-
-def allowed_file(filename):
-    """허용된 파일 확장자인지 확인"""
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-def update_progress(task_id, status, progress=0, message="", result=None):
-    """진행 상황 업데이트"""
-    with lock:
-        if task_id not in progress_tracker:
-            progress_tracker[task_id] = {}
-        
-        progress_tracker[task_id].update({
-            "status": status,
-            "progress": progress,
-            "message": message,
-            "timestamp": time.time()
-        })
-        
-        if result:
-            progress_tracker[task_id]["result"] = result
-            
-        # 완료된 작업은 일정 시간 후 제거 (클린업)
-        if status == "completed" or status == "failed":
-            def cleanup():
-                time.sleep(3600)  # 1시간 후 제거
-                with lock:
-                    if task_id in progress_tracker:
-                        del progress_tracker[task_id]
-            
-            cleanup_thread = threading.Thread(target=cleanup)
-            cleanup_thread.daemon = True
-            cleanup_thread.start()
-
-def download_from_url(task_id, url):
-    """URL에서 동영상 다운로드 (yt-dlp 사용)"""
-    try:
-        update_progress(task_id, "downloading", 10, "동영상 다운로드 시작")
-        
-        output_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{task_id}")
-        os.makedirs(output_path, exist_ok=True)
-        
-        # 파일명 관련 옵션 추가
-        ydl_opts = {
-            'format': 'best',
-            'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
-            'noplaylist': True,
-            'restrictfilenames': True,  # 안전한 파일명 사용
-            'progress_hooks': [lambda d: download_progress_hook(d, task_id)],
-        }
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            downloaded_file = ydl.prepare_filename(info)
-            
-        update_progress(task_id, "downloaded", 40, "동영상 다운로드 완료")
-        return downloaded_file
-    
-    except Exception as e:
-        logger.error(f"다운로드 실패: {str(e)}")
-        update_progress(task_id, "failed", 0, f"다운로드 실패: {str(e)}")
-        raise
-
-def download_progress_hook(d, task_id):
-    """yt-dlp 다운로드 진행상황 훅"""
-    if d['status'] == 'downloading':
-        try:
-            percent = d['_percent_str']
-            percent = float(percent.strip('%'))
-            # 다운로드는 0-40% 진행 상황에 매핑
-            progress = min(40, max(10, 10 + (percent * 0.3)))
-            update_progress(task_id, "downloading", progress, f"다운로드 중: {percent}%")
-        except:
-            pass
-    elif d['status'] == 'finished':
-        update_progress(task_id, "processing", 40, "다운로드 완료, 변환 시작")
-
-def extract_audio(task_id, video_path):
-    """비디오에서 오디오 추출 (ffmpeg 사용)"""
-    try:
-        update_progress(task_id, "processing", 45, "오디오 추출 시작")
-        
-        output_dir = os.path.join(app.config['PROCESSED_FOLDER'], task_id)
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # 인코딩 문제를 피하기 위해 간단한 파일명 사용
-        audio_path = os.path.join(output_dir, f"{task_id}.mp3")
-        
-        # 경로에 한글이 포함되어도 작동하도록 UTF-8 설정
-        if os.name == 'nt':  # Windows
-            # Windows에서 한글 경로 처리를 위한 설정
-            si = subprocess.STARTUPINFO()
-            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            
-            # ffmpeg 명령 구성 (간소화된 버전)
-            cmd = [
-                'ffmpeg',
-                '-y',  # 기존 파일 덮어쓰기
-                '-i', video_path,
-                '-vn',  # 비디오 스트림 제외
-                '-ar', '16000',  # 샘플링 레이트 16kHz
-                '-ac', '1',  # 모노 채널
-                '-b:a', '64k',  # 비트레이트
-                '-f', 'mp3',
-                audio_path
-            ]
-            
-            # 프로세스 실행
-            process = subprocess.Popen(
-                cmd, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE, 
-                startupinfo=si
-            )
-        else:  # Linux/Mac
-            # ffmpeg 명령 구성
-            cmd = [
-                'ffmpeg',
-                '-y',  # 기존 파일 덮어쓰기
-                '-i', video_path,
-                '-vn',  # 비디오 스트림 제외
-                '-ar', '16000',  # 샘플링 레이트 16kHz
-                '-ac', '1',  # 모노 채널
-                '-b:a', '64k',  # 비트레이트
-                '-f', 'mp3',
-                audio_path
-            ]
-            
-            # 프로세스 실행 및 실시간 출력 캡처
-            process = subprocess.Popen(
-                cmd, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE, 
-                universal_newlines=True
-            )
-        
-        # ffmpeg 출력에서 진행 상황 파싱
-        stdout, stderr = process.communicate()
-        
-        # 프로세스 완료 확인
-        if process.returncode != 0:
-            logger.error(f"FFmpeg 오류: {stderr}")
-            raise Exception(f"오디오 추출 실패: 반환 코드 {process.returncode}")
-        
-        update_progress(task_id, "processing", 70, "오디오 추출 완료")
-        return audio_path
-    
-    except Exception as e:
-        logger.error(f"오디오 추출 실패: {str(e)}")
-        update_progress(task_id, "failed", 0, f"오디오 추출 실패: {str(e)}")
-        raise
-def compress_audio(input_path, output_path):
-    """📌 25MB 이하로 자동 압축 (16kHz 모노, 32kbps 비트레이트)"""
-    cmd = [
-        'ffmpeg', '-i', input_path,
-        '-ar', '16000', '-ac', '1', '-b:a', '32k',
-        '-y', output_path  # 기존 파일 덮어쓰기
-    ]
-    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-def send_to_ai_processor(task_id, audio_path):
-    try:
-        update_progress(task_id, "ai_processing", 75, "Whisper API 처리 준비 중...")
-        
-        # 오디오 파일 정보 확인
-        probe_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 
-                     'default=noprint_wrappers=1:nokey=1', audio_path]
-        duration = float(subprocess.check_output(probe_cmd).decode('utf-8').strip())
-        
-        # 파일 크기 확인 (바이트)
-        file_size = os.path.getsize(audio_path)
-        file_size_mb = file_size / (1024 * 1024)
-        
-        # 대용량 파일 처리 로직
-        if file_size_mb > 24:  # 24MB 이상이면 분할 처리
-            update_progress(task_id, "ai_processing", 76, f"파일 크기: {file_size_mb:.2f}MB, 분할 처리 시작...")
-            
-            # 청크 길이 계산 (대략 10분 단위로 나누기, 크기에 따라 조정)
-            chunk_length = min(600, duration / (file_size_mb / 24))  # 초 단위
-            
-            # 분할할 청크 수 계산
-            num_chunks = int(duration / chunk_length) + 1
-            update_progress(task_id, "ai_processing", 77, f"총 {num_chunks}개 청크로 분할 처리 중...")
-            
-            # 임시 폴더 생성
-            chunk_dir = os.path.join(app.config['PROCESSED_FOLDER'], f"{task_id}_chunks")
-            os.makedirs(chunk_dir, exist_ok=True)
-            
-            # 전체 텍스트 결과 저장용
-            full_text = []
-            
-            # 각 청크 처리
-            for i in range(num_chunks):
-                start_time = i * chunk_length
-                # 마지막 청크는 끝까지
-                end_time = min((i + 1) * chunk_length, duration)
-                
-                # 진행률 업데이트
-                progress = 77 + (i / num_chunks) * 20
-                update_progress(task_id, "ai_processing", progress, 
-                               f"청크 {i+1}/{num_chunks} 처리 중 ({start_time:.1f}s - {end_time:.1f}s)...")
-                
-                # 청크 파일 생성
-                chunk_file = os.path.join(chunk_dir, f"chunk_{i}.mp3")
-                
-                # ffmpeg로 청크 추출
-                cmd = [
-                    'ffmpeg', '-y', '-i', audio_path,
-                    '-ss', str(start_time), '-to', str(end_time),
-                    '-c:a', 'libmp3lame', '-b:a', '32k',
-                    chunk_file
-                ]
-                subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                
-                # API로 청크 처리
-                with open(chunk_file, "rb") as audio_file:
-                    response = openai.audio.transcriptions.create(
-                        model="whisper-1",
-                        file=audio_file,
-                        language="ko"
-                    )
-                
-                # 결과 추가
-                full_text.append(response.text)
-                
-                # 처리된 청크 삭제 (선택적)
-                os.remove(chunk_file)
-            
-            # 임시 디렉토리 정리
-            shutil.rmtree(chunk_dir, ignore_errors=True)
-            
-            # 전체 텍스트 합치기
-            transcribed_text = " ".join(full_text)
-            
-        else:
-            # 기존 로직 - 파일이 작은 경우
-            update_progress(task_id, "ai_processing", 80, "Whisper API 처리 중...")
-            
-            # 압축 파일 경로
-            compressed_audio_path = audio_path.replace(".mp3", "_compressed.mp3")
-            compress_audio(audio_path, compressed_audio_path)
-            
-            with open(compressed_audio_path, "rb") as audio_file:
-                response = openai.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    language="ko"
-                )
-            
-            transcribed_text = response.text
-        
-        # 결과 저장 및 반환 로직은 동일하게 유지
-        result_data = {
-            "audio_path": audio_path,
-            "status": "transcribed",
-            "message": "스크립트 변환 완료!",
-            "transcribed_text": transcribed_text
-        }
-        
-        result_dir = os.path.join(app.config['RESULTS_FOLDER'], task_id)
-        os.makedirs(result_dir, exist_ok=True)
-        result_path = os.path.join(result_dir, f"{task_id}_result.json")
-        with open(result_path, 'w', encoding='utf-8') as f:
-            json.dump(result_data, f, ensure_ascii=False, indent=4)
-            
-        update_progress(task_id, "completed", 100, "변환 완료", result_data)
-        return result_data
-        
-    except Exception as e:
-        logger.error(f"Whisper API 처리 실패: {str(e)}")
-        update_progress(task_id, "failed", 0, f"Whisper API 처리 실패: {str(e)}")
-        raise
-
-def process_lecture(task_id, file_path=None, url=None):
-    """강의 처리 메인 함수"""
-    try:
-        # 1. 다운로드 또는 파일 확인
-        if url:
-            file_path = download_from_url(task_id, url)
-        else:
-            update_progress(task_id, "processing", 40, "파일 업로드 완료, 변환 시작")
-        
-        # 2. 오디오 추출
-        audio_path = extract_audio(task_id, file_path)
-        
-        # 3. whisper STT 변환
-        result = send_to_ai_processor(task_id, audio_path)
-
-        # 4. 퀴즈 & 학습 계획 & 튜터링
-
-        # 5. 임시 파일 정리 (파일 저장 안 하고, 처리 완료하면 삭제하는 방식으로)
-        cleanup_uploads(task_id)
-        
-        return result
-    
-    except Exception as e:
-        logger.error(f"강의 처리 실패: {str(e)}")
-        update_progress(task_id, "failed", 0, f"처리 실패: {str(e)}")
-        raise
-
-def cleanup_uploads(task_id):
-    """원본 영상 파일만 정리"""
-    try:
-        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], task_id)
-        if os.path.exists(upload_path):
-            shutil.rmtree(upload_path)
-    except Exception as e:
-        logger.warning(f"업로드 파일 정리 중 오류: {str(e)}")
-
-# 작업 처리 스레드
-def worker():
-    """작업 큐에서 작업을 가져와서 처리하는 워커 스레드"""
-    while True:
-        try:
-            # 큐에서 작업 가져오기
-            task = task_queue.get()
-            if task is None:  # 종료 신호
-                break
-                
-            task_id, file_path, url = task
-            # 작업 처리
-            process_lecture(task_id, file_path, url)
-            
-        except Exception as e:
-            logger.error(f"작업 처리 중 오류: {str(e)}")
-        finally:
-            # 작업 완료 표시
-            task_queue.task_done()
-
-# 워커 스레드 시작
-def start_workers(num_workers=4):
-    """워커 스레드들을 시작"""
-    for _ in range(num_workers):
-        t = threading.Thread(target=worker)
-        t.daemon = True
-        t.start()
-
-# 서버 시작 시 워커 스레드 시작
-start_workers()
-
+# 메인 페이지
 @app.route('/')
-def home():
-    return render_template("test.html")
+def index():
+    return render_template('test.html')
 
+# 파일 업로드 처리 엔드포인트
 @app.route('/process/file', methods=['POST'])
 def upload_file():
     """파일 업로드 처리 엔드포인트"""
     if 'file' not in request.files:
-        return jsonify({"error": "파일이 없습니다"}), 400
-    
+        return jsonify(create_error_response("파일이 없습니다")), 400
+
     file = request.files['file']
-    
+
     if file.filename == '':
-        return jsonify({"error": "선택된 파일이 없습니다"}), 400
-    
+        return jsonify(create_error_response("선택된 파일이 없습니다")), 400
+
     if not allowed_file(file.filename):
-        return jsonify({"error": f"지원되지 않는 파일 형식입니다. 허용된 형식: {', '.join(ALLOWED_EXTENSIONS)}"}), 400
-    
+        return jsonify(create_error_response(f"지원되지 않는 파일 형식입니다. 허용된 형식: {', '.join(ALLOWED_EXTENSIONS)}")), 400
+
     try:
         task_id = str(uuid.uuid4())
         # 안전한 파일명 사용
         filename = sanitize_filename(secure_filename(file.filename))
         upload_dir = os.path.join(app.config['UPLOAD_FOLDER'], task_id)
-        os.makedirs(upload_dir, exist_ok=True)
-        file_path = os.path.join(upload_dir, filename)
-        file.save(file_path)
-        
+        file_path = save_uploaded_file(file, upload_dir, filename)
+
         update_progress(task_id, "uploaded", 10, "파일 업로드 완료")
-        
+
         # 작업 큐에 추가
         task_queue.put((task_id, file_path, None))
-        
-        return jsonify({
-            "task_id": task_id,
-            "message": "파일 업로드 완료, 처리 대기열에 추가됨",
-            "status": "queued"
-        }), 202
-    
+
+        return jsonify(create_success_response(
+            message="파일 업로드 완료, 처리 대기열에 추가됨",
+            data={"task_id": task_id, "status": "queued"}
+        )), 202
+
     except Exception as e:
         logger.error(f"파일 업로드 실패: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify(create_error_response(str(e))), 500
 
+# URL 처리 엔드포인트
 @app.route('/process/url', methods=['POST'])
 def upload_url():
     """URL 처리 엔드포인트"""
     data = request.get_json()
-    
+
     if not data or 'url' not in data:
-        return jsonify({"error": "URL이 제공되지 않았습니다"}), 400
-    
+        return jsonify(create_error_response("URL이 제공되지 않았습니다")), 400
+
     url = data['url']
-    
+
     try:
         task_id = str(uuid.uuid4())
         update_progress(task_id, "queued", 0, "URL 처리 대기 중")
-        
+
         # 작업 큐에 추가
         task_queue.put((task_id, None, url))
-        
-        return jsonify({
-            "task_id": task_id,
-            "message": "URL 처리 대기열에 추가됨",
-            "status": "queued"
-        }), 202
-    
+
+        return jsonify(create_success_response(
+            message="URL 처리 대기열에 추가됨",
+            data={"task_id": task_id, "status": "queued"}
+        )), 202
+
     except Exception as e:
         logger.error(f"URL 처리 실패: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify(create_error_response(str(e))), 500
 
+# 다중 파일 업로드 엔드포인트
 @app.route('/process/batch', methods=['POST'])
 def upload_batch():
     """다중 파일 업로드 엔드포인트"""
     if 'files[]' not in request.files:
-        return jsonify({"error": "파일이 없습니다"}), 400
-    
+        return jsonify(create_error_response("파일이 없습니다")), 400
+
     files = request.files.getlist('files[]')
     results = []
-    
+
     for file in files:
         if file.filename == '':
             continue
-            
+
         if not allowed_file(file.filename):
             results.append({
                 "filename": file.filename,
@@ -495,28 +142,26 @@ def upload_batch():
                 "message": f"지원되지 않는 파일 형식입니다. 허용된 형식: {', '.join(ALLOWED_EXTENSIONS)}"
             })
             continue
-            
+
         try:
             task_id = str(uuid.uuid4())
             # 안전한 파일명 사용
             filename = sanitize_filename(secure_filename(file.filename))
             upload_dir = os.path.join(app.config['UPLOAD_FOLDER'], task_id)
-            os.makedirs(upload_dir, exist_ok=True)
-            file_path = os.path.join(upload_dir, filename)
-            file.save(file_path)
-            
+            file_path = save_uploaded_file(file, upload_dir, filename)
+
             update_progress(task_id, "uploaded", 10, "파일 업로드 완료")
-            
+
             # 작업 큐에 추가
             task_queue.put((task_id, file_path, None))
-            
+
             results.append({
                 "filename": file.filename,
                 "task_id": task_id,
                 "status": "queued",
                 "message": "파일 업로드 완료, 처리 대기열에 추가됨"
             })
-            
+
         except Exception as e:
             logger.error(f"파일 업로드 실패: {str(e)}")
             results.append({
@@ -524,45 +169,48 @@ def upload_batch():
                 "status": "error",
                 "message": str(e)
             })
-    
-    return jsonify({
-        "message": f"{len(results)}개 파일 업로드 처리 완료",
-        "results": results
-    }), 202
 
+    return jsonify(create_success_response(
+        message=f"{len(results)}개 파일 업로드 처리 완료",
+        data={"results": results}
+    )), 202
+
+# 작업 진행 상황 조회 엔드포인트
 @app.route('/progress/<task_id>', methods=['GET'])
-def get_progress(task_id):
+def get_task_progress(task_id):
     """작업 진행 상황 조회 엔드포인트"""
-    with lock:
-        if task_id not in progress_tracker:
-            return jsonify({"error": "작업을 찾을 수 없습니다"}), 404
-        
-        return jsonify(progress_tracker[task_id]), 200
+    progress = get_progress(task_id)
+    
+    if not progress:
+        return jsonify(create_error_response("작업을 찾을 수 없습니다")), 404
 
+    return jsonify(progress), 200
+
+# 모든 작업 진행 상황 조회 엔드포인트
 @app.route('/progress/all', methods=['GET'])
-def get_all_progress():
+def get_all_task_progress():
     """모든 작업 진행 상황 조회 엔드포인트"""
-    with lock:
-        return jsonify(progress_tracker), 200
+    return jsonify(get_all_progress()), 200
 
+# AI 변환 결과 조회 엔드포인트
 @app.route('/ai/transcribe', methods=['POST'])
 def transcribe_audio():
-    """ 오디오를 Whisper로 변환하여 텍스트 반환"""
+    """오디오를 Whisper로 변환하여 텍스트 반환"""
     data = request.get_json()
     task_id = data.get("task_id")
 
     if not task_id:
-        return jsonify({"error": "task_id가 제공되지 않았습니다"}), 400
+        return jsonify(create_error_response("task_id가 제공되지 않았습니다")), 400
 
     result_dir = os.path.join(app.config['RESULTS_FOLDER'], task_id)
 
     if not os.path.exists(result_dir):
-        return jsonify({"error": "결과 파일을 찾을 수 없습니다"}), 404
+        return jsonify(create_error_response("결과 파일을 찾을 수 없습니다")), 404
 
     result_files = [f for f in os.listdir(result_dir) if f.endswith('_result.json')]
 
     if not result_files:
-        return jsonify({"error": "스크립트 변환 결과를 찾을 수 없습니다"}), 404
+        return jsonify(create_error_response("스크립트 변환 결과를 찾을 수 없습니다")), 404
 
     result_path = os.path.join(result_dir, result_files[0])
     with open(result_path, 'r', encoding='utf-8') as f:
@@ -570,127 +218,348 @@ def transcribe_audio():
 
     return jsonify(result_data)
 
+# 처리된 오디오 파일 다운로드 엔드포인트
 @app.route('/download/audio/<task_id>', methods=['GET'])
 def download_processed_audio(task_id):
     """처리된 오디오 파일 다운로드 엔드포인트"""
     try:
         processed_dir = os.path.join(app.config['PROCESSED_FOLDER'], task_id)
-        
+
         if not os.path.exists(processed_dir):
-            return jsonify({"error": "처리된 파일을 찾을 수 없습니다"}), 404
-        
+            return jsonify(create_error_response("처리된 파일을 찾을 수 없습니다")), 404
+
         # 디렉토리 내 mp3 파일 찾기
         audio_files = [f for f in os.listdir(processed_dir) if f.endswith('.mp3')]
-        
+
         if not audio_files:
-            return jsonify({"error": "처리된 오디오 파일을 찾을 수 없습니다"}), 404
-        
+            return jsonify(create_error_response("처리된 오디오 파일을 찾을 수 없습니다")), 404
+
         return send_file(
             os.path.join(processed_dir, audio_files[0]),
             mimetype='audio/mpeg',
             as_attachment=True,
             download_name=f"processed_{task_id}.mp3"
         )
-    
+
     except Exception as e:
         logger.error(f"파일 다운로드 실패: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify(create_error_response(str(e))), 500
 
-
-
+# AI 처리 결과 다운로드 엔드포인트
 @app.route('/download/result/<task_id>', methods=['GET'])
 def download_result(task_id):
     """AI 처리 결과 다운로드 엔드포인트"""
     try:
         result_dir = os.path.join(app.config['RESULTS_FOLDER'], task_id)
-        
+
         if not os.path.exists(result_dir):
-            return jsonify({"error": "결과 파일을 찾을 수 없습니다"}), 404
-        
+            return jsonify(create_error_response("결과 파일을 찾을 수 없습니다")), 404
+
         # 결과 JSON 파일 찾기
         result_files = [f for f in os.listdir(result_dir) if f.endswith('_result.json')]
-        
+
         if not result_files:
-            return jsonify({"error": "결과 파일을 찾을 수 없습니다"}), 404
-        
+            return jsonify(create_error_response("결과 파일을 찾을 수 없습니다")), 404
+
         return send_file(
             os.path.join(result_dir, result_files[0]),
             mimetype='application/json',
             as_attachment=True,
             download_name=f"result_{task_id}.json"
         )
-    
+
     except Exception as e:
         logger.error(f"결과 다운로드 실패: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify(create_error_response(str(e))), 500
 
+# 작업 취소 엔드포인트
 @app.route('/cancel/<task_id>', methods=['POST'])
 def cancel_task(task_id):
     """작업 취소 엔드포인트"""
-    with lock:
-        if task_id not in progress_tracker:
-            return jsonify({"error": "작업을 찾을 수 없습니다"}), 404
-        
-        update_progress(task_id, "cancelled", 0, "사용자에 의해 취소됨")
-        return jsonify({"message": "작업 취소 요청됨"}), 200
+    progress = get_progress(task_id)
+    
+    if not progress:
+        return jsonify(create_error_response("작업을 찾을 수 없습니다")), 404
 
+    update_progress(task_id, "cancelled", 0, "사용자에 의해 취소됨")
+    return jsonify(create_success_response("작업 취소 요청됨")), 200
+
+# 서버 상태 확인 엔드포인트
 @app.route('/health', methods=['GET'])
 def health_check():
     """서버 상태 확인 엔드포인트"""
     # 큐 상태도 추가
     queue_size = task_queue.qsize()
-    
+
     return jsonify({
         "status": "healthy",
         "time": time.time(),
         "queue_size": queue_size,
-        "active_tasks": len(progress_tracker)
+        "active_tasks": len(get_all_progress())
     }), 200
 
+# 요약 생성 엔드포인트
+@app.route('/summary', methods=['POST', 'GET'])
+def summary_api():
+    """강의 요약 생성 또는 스트리밍 엔드포인트"""
+    if request.method == 'POST':
+        if 'lecture_id' not in request.json:
+            return jsonify(create_error_response("lecture_id가 필요합니다")), 400
 
+        lecture_id = request.json['lecture_id']
 
-# AI 처리 모듈 통합 인터페이스
-# 실제로는 다른 팀원이 개발한 AI 모듈을 import하여 사용할 것
-# 예씨: from ai_module import transcribe, summarize, generate_questions
+        # 스트리밍 옵션 확인
+        streaming = request.json.get('streaming', True)
 
-@app.route('/ai/process', methods=['POST'])
-def ai_process_endpoint():
-    """AI 처리 엔드포인트 (다른 팀원이 개발할 부분과 통합할 포인트)"""
-    if 'file' not in request.files:
-        return jsonify({"error": "파일이 없습니다"}), 400
-    
-    file = request.files['file']
-    task_id = request.form.get('task_id', str(uuid.uuid4()))
-    
+        # 파일 경로 확인
+        if not os.path.exists(os.path.join(app.config['DATA_FOLDER'], f"{lecture_id}.txt")):
+            return jsonify(create_error_response(f"lecture_id {lecture_id}에 해당하는 데이터를 찾을 수 없습니다.")), 404
+
+        if streaming:
+            # 스트리밍 방식 응답
+            try:
+                # 파일 로드
+                with open(os.path.join(app.config['DATA_FOLDER'], f"{lecture_id}.txt"), 'r', encoding='utf-8') as f:
+                    text = f.read()
+                
+                return Response(
+                    stream_with_context(stream_summary(lecture_id, text)),
+                    content_type='text/plain; charset=utf-8'
+                )
+            except Exception as e:
+                logger.error(f"요약 스트리밍 실패: {str(e)}")
+                return jsonify(create_error_response(str(e))), 500
+        else:
+            # 비동기 요약 생성 요청
+            try:
+                # 파일 로드
+                with open(os.path.join(app.config['DATA_FOLDER'], f"{lecture_id}.txt"), 'r', encoding='utf-8') as f:
+                    text = f.read()
+
+                # 요약 생성
+                summary_text = generate_summary(lecture_id, text)
+                return jsonify(create_success_response(data={"summary": summary_text}))
+            except Exception as e:
+                logger.error(f"요약 생성 실패: {str(e)}")
+                return jsonify(create_error_response(str(e))), 500
+    else:
+        # GET 요청 - 요약 HTML 페이지 반환
+        return render_template('summary.html')
+
+# 퀴즈 생성 엔드포인트
+@app.route('/quizzes', methods=['POST', 'GET'])
+def quizzes_api():
+    """강의 퀴즈 생성 엔드포인트"""
+    if request.method == 'POST':
+        if 'lecture_id' not in request.json:
+            return jsonify(create_error_response("lecture_id가 필요합니다")), 400
+
+        lecture_id = request.json['lecture_id']
+        streaming = request.json.get('streaming', True)
+
+        # 요약 데이터 확인
+        if lecture_id not in global_summary or not global_summary[lecture_id]:
+            # 요약이 없을 경우, 파일에서 요약 찾기 시도
+            summary_path = os.path.join(app.config['RESULTS_FOLDER'], lecture_id, f"{lecture_id}_summary.json")
+            if os.path.exists(summary_path):
+                with open(summary_path, 'r', encoding='utf-8') as f:
+                    summary_data = json.load(f)
+                    global_summary[lecture_id] = summary_data.get('summary_text', '')
+
+            # 그래도 없으면 에러 반환
+            if lecture_id not in global_summary or not global_summary[lecture_id]:
+                return jsonify(create_error_response('요약 결과가 없습니다. 먼저 /summary 엔드포인트를 호출하세요.')), 400
+
+        if streaming:
+            # 스트리밍 방식 응답
+            return Response(
+                stream_with_context(stream_quiz(lecture_id)),
+                content_type='text/plain; charset=utf-8'
+            )
+        else:
+            # 비동기 퀴즈 생성 요청
+            try:
+                quiz_text = generate_quiz(lecture_id, global_summary[lecture_id])
+                return jsonify(create_success_response(data={"quiz": quiz_text}))
+            except Exception as e:
+                logger.error(f"퀴즈 생성 실패: {str(e)}")
+                return jsonify(create_error_response(str(e))), 500
+    else:
+        # GET 요청 - 퀴즈 HTML 페이지 반환
+        return render_template('quiz.html')
+
+# 학습 계획 생성 엔드포인트
+@app.route('/study-plan', methods=['POST', 'GET'])
+def study_plan_api():
+    """강의 학습 계획 생성 엔드포인트"""
+    if request.method == 'POST':
+        if 'lecture_id' not in request.json:
+            return jsonify(create_error_response("lecture_id가 필요합니다")), 400
+
+        lecture_id = request.json['lecture_id']
+        streaming = request.json.get('streaming', True)
+
+        # 요약 데이터 확인
+        if lecture_id not in global_summary or not global_summary[lecture_id]:
+            # 요약이 없을 경우, 파일에서 요약 찾기 시도
+            summary_path = os.path.join(app.config['RESULTS_FOLDER'], lecture_id, f"{lecture_id}_summary.json")
+            if os.path.exists(summary_path):
+                with open(summary_path, 'r', encoding='utf-8') as f:
+                    summary_data = json.load(f)
+                    global_summary[lecture_id] = summary_data.get('summary_text', '')
+
+            # 그래도 없으면 에러 반환
+            if lecture_id not in global_summary or not global_summary[lecture_id]:
+                return jsonify(create_error_response('요약 결과가 없습니다. 먼저 /summary 엔드포인트를 호출하세요.')), 400
+
+        if streaming:
+            # 스트리밍 방식 응답
+            return Response(
+                stream_with_context(stream_study_plan(lecture_id)),
+                content_type='text/plain; charset=utf-8'
+            )
+        else:
+            # 비동기 학습 계획 생성 요청
+            try:
+                plan_text = generate_study_plan(lecture_id, global_summary[lecture_id])
+                return jsonify(create_success_response(data={"plan": plan_text}))
+            except Exception as e:
+                logger.error(f"학습 계획 생성 실패: {str(e)}")
+                return jsonify(create_error_response(str(e))), 500
+    else:
+        # GET 요청 - 학습 계획 HTML 페이지 반환
+        return render_template('study_plan.html')
+
+# 처리 결과 조회
+@app.route('/result/<task_id>', methods=['GET'])
+def get_result(task_id):
+    """처리 결과 조회"""
     try:
-        # 임시 저장
-        audio_dir = os.path.join(app.config['PROCESSED_FOLDER'], task_id)
-        os.makedirs(audio_dir, exist_ok=True)
-        audio_path = os.path.join(audio_dir, f"{task_id}_received.mp3")
-        file.save(audio_path)
-        
-        # AI 처리 모듈 호출 (여기서는 예시로만 구현)
-        result = send_to_ai_processor(task_id, audio_path)
-        
-        return jsonify({
-            "task_id": task_id,
-            "status": "processing",
-            "message": "AI 처리 시작됨"
-        }), 202
-        
+        result_path = os.path.join(app.config['RESULTS_FOLDER'], task_id, f"{task_id}_complete.json")
+        if os.path.exists(result_path):
+            with open(result_path, 'r', encoding='utf-8') as f:
+                result = json.load(f)
+            return jsonify(result)
+        else:
+            return jsonify(create_error_response("결과를 찾을 수 없습니다.")), 404
     except Exception as e:
-        logger.error(f"AI 처리 요청 실패: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"결과 조회 실패: {str(e)}")
+        return jsonify(create_error_response(str(e))), 500
 
-# 애플리케이션 종료 시 정리
-@atexit.register
-def cleanup():
-    # 모든 워커에게 종료 신호 보내기
-    for _ in range(4):  # 워커 수만큼
-        task_queue.put(None)
-    
-    # ThreadPoolExecutor 종료
-    executor.shutdown(wait=False)
+# 강의 인덱싱 엔드포인트
+@app.route('/index/<task_id>', methods=['POST'])
+def index_lecture(task_id):
+    """강의 텍스트를 벡터 DB에 인덱싱"""
+    try:
+        if index_lecture_text(task_id):
+            return jsonify(create_success_response("강의 인덱싱 완료"))
+        else:
+            return jsonify(create_error_response("강의 데이터를 찾을 수 없습니다.")), 404
+    except Exception as e:
+        logger.error(f"강의 인덱싱 실패: {str(e)}")
+        return jsonify(create_error_response(str(e))), 500
+
+# 질문-답변 API
+@app.route('/query', methods=['POST'])
+def query():
+    """질문-답변 API"""
+    try:
+        data = request.json
+        question = data.get('question')
+        task_id = data.get('task_id')
+        
+        if not task_id:
+            return jsonify(create_error_response("task_id가 필요합니다")), 400
+        
+        if not question:
+            return jsonify(create_error_response("question이 필요합니다")), 400
+        
+        # 스트리밍 응답 생성
+        def generate():
+            for answer_chunk in generate_streaming_answer(task_id, question):
+                yield answer_chunk
+        
+        return Response(generate(), content_type='text/plain; charset=utf-8')
+    except Exception as e:
+        logger.error(f"질문 처리 실패: {str(e)}")
+        return jsonify(create_error_response(str(e))), 500
+
+# 강의 목록 조회
+@app.route('/lectures', methods=['GET'])
+def get_lectures():
+    """처리된 강의 목록 조회"""
+    try:
+        lectures = []
+        for filename in os.listdir(app.config['DATA_FOLDER']):
+            if filename.endswith('.txt'):
+                lecture_id = filename.split('.')[0]
+                # 첫 줄만 읽어서 제목으로 사용
+                with open(os.path.join(app.config['DATA_FOLDER'], filename), 'r', encoding='utf-8') as f:
+                    first_line = f.readline().strip()
+                    title = first_line[:50] + '...' if len(first_line) > 50 else first_line
+                
+                lectures.append({
+                    "id": lecture_id,
+                    "title": title,
+                    "date": os.path.getmtime(os.path.join(app.config['DATA_FOLDER'], filename))
+                })
+        
+        # 날짜 기준 내림차순 정렬
+        lectures.sort(key=lambda x: x["date"], reverse=True)
+        
+        return jsonify(lectures)
+    except Exception as e:
+        logger.error(f"강의 목록 조회 실패: {str(e)}")
+        return jsonify(create_error_response(str(e))), 500
+
+# 백엔드 통합용 처리 API
+@app.route('/process', methods=['POST'])
+def process_api():
+    """백엔드 통합용 처리 API"""
+    try:
+        data = request.get_json()
+        
+        # 필수 파라미터 확인
+        if 'lecture_id' not in data:
+            return jsonify(create_error_response("lecture_id가 필요합니다")), 400
+            
+        lecture_id = data['lecture_id']
+        source_type = data.get('source_type', 'FILE')
+        callback_url = data.get('callback_url')
+        
+        task_id = str(uuid.uuid4())
+        
+        if source_type.upper() == 'YOUTUBE':
+            if 'youtube_url' not in data:
+                return jsonify(create_error_response("youtube_url이 필요합니다")), 400
+                
+            youtube_url = data['youtube_url']
+            update_progress(task_id, "queued", 0, "YouTube URL 처리 대기 중")
+            
+            # 작업 큐에 추가 (콜백 URL과 lecture_id 포함)
+            task_queue.put((task_id, None, youtube_url, callback_url, lecture_id))
+            
+        elif source_type.upper() == 'FILE':
+            if 'file_url' not in data:
+                return jsonify(create_error_response("file_url이 필요합니다")), 400
+                
+            file_url = data['file_url']
+            update_progress(task_id, "queued", 0, "파일 처리 대기 중")
+            
+            # 작업 큐에 추가 (콜백 URL과 lecture_id 포함)
+            task_queue.put((task_id, file_url, None, callback_url, lecture_id))
+            
+        else:
+            return jsonify(create_error_response("지원되지 않는 source_type입니다")), 400
+            
+        return jsonify(create_success_response(
+            message="처리 대기열에 추가됨",
+            data={"task_id": task_id, "lecture_id": lecture_id, "status": "queued"}
+        )), 202
+            
+    except Exception as e:
+        logger.error(f"처리 요청 실패: {str(e)}")
+        return jsonify(create_error_response(str(e))), 500
 
 if __name__ == '__main__':
     app.run(port=5000, debug=True)
