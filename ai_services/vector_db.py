@@ -56,21 +56,48 @@ def index_lecture_text(task_id):
         return False
 
 def generate_answer(task_id, question):
-    """벡터 DB 기반으로 답변 생성"""
-    if task_id not in lecture_indices:
-        # 인덱스가 없으면 생성 시도
-        if not index_lecture_text(task_id):
+    """벡터 DB에서 질문에 대한 답변 생성 (스트리밍 없음)"""
+    try:
+        # 벡터 DB 초기화 확인
+        if not os.path.exists(os.path.join(DATA_FOLDER, f"{task_id}.txt")):
             return "해당 강의 데이터를 찾을 수 없습니다."
-    
-    # 쿼리 엔진 생성
-    query_engine = lecture_indices[task_id].as_query_engine()
-    
-    # 벡터 DB 기반으로 답변 생성
-    response = query_engine.query(question)
-    
-    if hasattr(response, 'text'):
-        return response.text  # Response 객체에서 텍스트 추출
-    return str(response)  # 응답을 문자열로 변환
+            
+        # 대화 기록이 없으면 초기화
+        if task_id not in conversation_history:
+            conversation_history[task_id] = deque(maxlen=6)
+        
+        # 대화 기록 포함한 프롬프트 생성
+        context = "\n".join([f"{role}: {content}" for role, content in conversation_history[task_id]])
+        full_prompt = f"이전 대화:\n{context}\n\n사용자 질문: {question}\n\n한국어로 답변해주세요."
+        
+        # 대화 기록에 사용자 질문 추가
+        add_to_conversation_history(task_id, "사용자", question)
+            
+        # 문서 로드
+        documents = SimpleDirectoryReader(
+            input_files=[os.path.join(DATA_FOLDER, f"{task_id}.txt")]
+        ).load_data()
+        
+        # 벡터 인덱스 생성
+        index = VectorStoreIndex.from_documents(documents)
+        
+        # 쿼리 엔진 생성 - 한국어 응답 설정
+        query_engine = index.as_query_engine(
+            system_prompt="당신은 강의 내용에 대해 답변하는 도우미입니다. 반드시 한국어로 답변해주세요."
+        )
+        
+        # 질문에 대한 응답 생성
+        response = query_engine.query(full_prompt)
+        answer = response.response
+        
+        # 대화 기록에 AI 응답 추가
+        add_to_conversation_history(task_id, "AI", answer)
+        
+        return answer
+        
+    except Exception as e:
+        logger.error(f"질의 처리 실패: {str(e)}")
+        return f"오류가 발생했습니다: {str(e)}"
 
 def get_conversation_history(task_id):
     """대화 기록 가져오기"""

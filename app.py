@@ -28,7 +28,7 @@ from ai_services.generation import (
     generate_summary, generate_quiz, generate_study_plan, global_summary
 )
 from ai_services.vector_db import (
-    index_lecture_text, generate_streaming_answer
+    index_lecture_text, generate_streaming_answer, generate_answer
 )
 
 # Flask 앱 초기화
@@ -474,12 +474,10 @@ def query():
         if not question:
             return jsonify(create_error_response("question이 필요합니다")), 400
         
-        # 스트리밍 응답 생성
-        def generate():
-            for answer_chunk in generate_streaming_answer(task_id, question):
-                yield answer_chunk
+        # 스트리밍 대신 전체 응답 한 번에 반환
+        answer = generate_answer(task_id, question)  # 스트리밍 없는 함수 사용
+        return jsonify(create_success_response(data={"answer": answer}))
         
-        return Response(generate(), content_type='text/plain; charset=utf-8')
     except Exception as e:
         logger.error(f"질문 처리 실패: {str(e)}")
         return jsonify(create_error_response(str(e))), 500
