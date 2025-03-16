@@ -1,6 +1,5 @@
-## 2025 03 16... 
+## 2025 03 16 수정
 
-클론 후... 
 ## 시스템 요구사항
 - Python 3.8 이상
 - FFmpeg
@@ -35,6 +34,7 @@ pip install yt-dlp whisper ffmpeg-python
 # 기타 유틸리티
 pip install requests numpy tqdm
 ```
+- 이외의 추가 설치가 일부 필요할 수 있습니다.
 
 내용 작성 후 업뎃 바람. 
 
