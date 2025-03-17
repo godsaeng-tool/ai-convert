@@ -59,121 +59,111 @@ def index():
     return render_template('test.html')
 
 # 파일 업로드 처리 엔드포인트
-@app.route('/process/file', methods=['POST'])
-def upload_file():
-    """파일 업로드 처리 엔드포인트"""
-    if 'file' not in request.files:
-        return jsonify(create_error_response("파일이 없습니다")), 400
-
-    file = request.files['file']
-
-    if file.filename == '':
-        return jsonify(create_error_response("선택된 파일이 없습니다")), 400
-
-    if not allowed_file(file.filename):
-        return jsonify(create_error_response(f"지원되지 않는 파일 형식입니다. 허용된 형식: {', '.join(ALLOWED_EXTENSIONS)}")), 400
-
-    try:
-        task_id = str(uuid.uuid4())
-        # 안전한 파일명 사용
-        filename = sanitize_filename(secure_filename(file.filename))
-        upload_dir = os.path.join(app.config['UPLOAD_FOLDER'], task_id)
-        file_path = save_uploaded_file(file, upload_dir, filename)
-
-        update_progress(task_id, "uploaded", 10, "파일 업로드 완료")
-
-        # 작업 큐에 추가
-        task_queue.put((task_id, file_path, None))
-
-        return jsonify(create_success_response(
-            message="파일 업로드 완료, 처리 대기열에 추가됨",
-            data={"task_id": task_id, "status": "queued"}
-        )), 202
-
-    except Exception as e:
-        logger.error(f"파일 업로드 실패: {str(e)}")
-        return jsonify(create_error_response(str(e))), 500
-
-# URL 처리 엔드포인트
-@app.route('/process/url', methods=['POST'])
-def upload_url():
-    """URL 처리 엔드포인트"""
-    data = request.get_json()
-
-    if not data or 'url' not in data:
-        return jsonify(create_error_response("URL이 제공되지 않았습니다")), 400
-
-    url = data['url']
-
-    try:
-        task_id = str(uuid.uuid4())
-        update_progress(task_id, "queued", 0, "URL 처리 대기 중")
-
-        # 작업 큐에 추가
-        task_queue.put((task_id, None, url))
-
-        return jsonify(create_success_response(
-            message="URL 처리 대기열에 추가됨",
-            data={"task_id": task_id, "status": "queued"}
-        )), 202
-
-    except Exception as e:
-        logger.error(f"URL 처리 실패: {str(e)}")
-        return jsonify(create_error_response(str(e))), 500
-
-# 다중 파일 업로드 엔드포인트
-@app.route('/process/batch', methods=['POST'])
-def upload_batch():
-    """다중 파일 업로드 엔드포인트"""
-    if 'files[]' not in request.files:
-        return jsonify(create_error_response("파일이 없습니다")), 400
-
-    files = request.files.getlist('files[]')
-    results = []
-
-    for file in files:
+@app.route('/process', methods=['POST'])
+def process_request():
+    """통합 처리 엔드포인트 - 파일 및 URL 처리"""
+    
+    # Content-Type이 multipart/form-data인 경우 (파일 업로드)
+    if 'file' in request.files:
+        file = request.files['file']
         if file.filename == '':
-            continue
+            return jsonify({
+                "success": False,
+                "message": "선택된 파일이 없습니다",
+                "file_url": None
+            }), 400
 
         if not allowed_file(file.filename):
-            results.append({
-                "filename": file.filename,
-                "status": "error",
-                "message": f"지원되지 않는 파일 형식입니다. 허용된 형식: {', '.join(ALLOWED_EXTENSIONS)}"
-            })
-            continue
+            return jsonify({
+                "success": False,
+                "message": f"지원되지 않는 파일 형식입니다. 허용된 형식: {', '.join(ALLOWED_EXTENSIONS)}",
+                "file_url": None
+            }), 400
 
         try:
             task_id = str(uuid.uuid4())
-            # 안전한 파일명 사용
             filename = sanitize_filename(secure_filename(file.filename))
             upload_dir = os.path.join(app.config['UPLOAD_FOLDER'], task_id)
             file_path = save_uploaded_file(file, upload_dir, filename)
 
+            # lecture_id가 없으면 기본값으로 1 사용 (숫자 형식)
+            lecture_id = request.form.get('lecture_id', '1')
+            
+            # lecture_id가 숫자인지 확인하고, 숫자가 아니면 기본값 1 사용
+            try:
+                lecture_id = int(lecture_id)
+            except ValueError:
+                lecture_id = 1
+                
+            callback_url = request.form.get('callback_url', 'http://localhost:8080/api/ai/callback/complete')
+
             update_progress(task_id, "uploaded", 10, "파일 업로드 완료")
+            
+            # 작업 큐에 추가 (콜백 URL과 lecture_id 포함)
+            task_queue.put((task_id, file_path, None, callback_url, str(lecture_id)))
 
-            # 작업 큐에 추가
-            task_queue.put((task_id, file_path, None))
-
-            results.append({
-                "filename": file.filename,
+            # Spring Boot가 기대하는 응답 형식
+            return jsonify({
+                "success": True,
+                "message": "파일 업로드 완료",
+                "file_url": file_path,
                 "task_id": task_id,
-                "status": "queued",
-                "message": "파일 업로드 완료, 처리 대기열에 추가됨"
-            })
+                "lecture_id": lecture_id
+            }), 200
 
         except Exception as e:
             logger.error(f"파일 업로드 실패: {str(e)}")
-            results.append({
-                "filename": file.filename,
-                "status": "error",
-                "message": str(e)
-            })
+            return jsonify({
+                "success": False,
+                "message": str(e),
+                "file_url": None
+            }), 500
 
-    return jsonify(create_success_response(
-        message=f"{len(results)}개 파일 업로드 처리 완료",
-        data={"results": results}
-    )), 202
+    # JSON 요청 처리 (URL 처리)
+    elif request.is_json:
+        try:
+            data = request.get_json()
+            
+            if 'lecture_id' not in data:
+                return jsonify(create_error_response("lecture_id가 필요합니다")), 400
+                
+            lecture_id = data['lecture_id']
+            source_type = data.get('source_type', 'FILE')
+            callback_url = data.get('callback_url')
+            
+            task_id = str(uuid.uuid4())
+            
+            if source_type.upper() == 'YOUTUBE':
+                if 'youtube_url' not in data:
+                    return jsonify(create_error_response("youtube_url이 필요합니다")), 400
+                    
+                youtube_url = data['youtube_url']
+                update_progress(task_id, "queued", 0, "YouTube URL 처리 대기 중")
+                task_queue.put((task_id, None, youtube_url, callback_url, lecture_id))
+                
+            elif source_type.upper() == 'FILE':
+                if 'file_url' not in data:
+                    return jsonify(create_error_response("file_url이 필요합니다")), 400
+                    
+                file_url = data['file_url']
+                update_progress(task_id, "queued", 0, "파일 처리 대기 중")
+                task_queue.put((task_id, file_url, None, callback_url, lecture_id))
+            
+            return jsonify(create_success_response(
+                message="처리 대기열에 추가됨",
+                data={"task_id": task_id, "lecture_id": lecture_id, "status": "queued"}
+            )), 202
+                
+        except Exception as e:
+            logger.error(f"처리 요청 실패: {str(e)}")
+            return jsonify(create_error_response(str(e))), 500
+    
+    else:
+        return jsonify({
+            "success": False,
+            "message": "지원되지 않는 Content-Type입니다",
+            "file_url": None
+        }), 400
 
 # 작업 진행 상황 조회 엔드포인트
 @app.route('/progress/<task_id>', methods=['GET'])
@@ -515,50 +505,46 @@ def get_lectures():
 def process_api():
     """백엔드 통합용 처리 API"""
     try:
-        # multipart/form-data 확인
-        if 'file' not in request.files:
-            return jsonify(create_error_response("파일이 없습니다")), 400
-
-        file = request.files['file']
-        lecture_id = request.form.get('lecture_id')
-        callback_url = request.form.get('callback_url')
-
-        if not lecture_id:
+        data = request.get_json()
+        
+        # 필수 파라미터 확인
+        if 'lecture_id' not in data:
             return jsonify(create_error_response("lecture_id가 필요합니다")), 400
-
-        if file.filename == '':
-            return jsonify(create_error_response("선택된 파일이 없습니다")), 400
-
-        if not allowed_file(file.filename):
-            return jsonify(create_error_response(
-                f"지원되지 않는 파일 형식입니다. 허용된 형식: {', '.join(ALLOWED_EXTENSIONS)}"
-            )), 400
-
-        try:
-            task_id = str(uuid.uuid4())
-            # 안전한 파일명 사용
-            filename = sanitize_filename(secure_filename(file.filename))
-            upload_dir = os.path.join(app.config['UPLOAD_FOLDER'], task_id)
-            file_path = save_uploaded_file(file, upload_dir, filename)
-
-            update_progress(task_id, "uploaded", 10, "파일 업로드 완료")
-
-            # 작업 큐에 추가
-            task_queue.put((task_id, file_path, None, callback_url, lecture_id))
-
-            return jsonify(create_success_response(
-                message="파일 업로드 완료, 처리 대기열에 추가됨",
-                data={
-                    "task_id": task_id, 
-                    "lecture_id": lecture_id, 
-                    "status": "queued"
-                }
-            )), 202
-
-        except Exception as e:
-            logger.error(f"파일 업로드 실패: {str(e)}")
-            return jsonify(create_error_response(str(e))), 500
-
+            
+        lecture_id = data['lecture_id']
+        source_type = data.get('source_type', 'FILE')
+        callback_url = data.get('callback_url')
+        
+        task_id = str(uuid.uuid4())
+        
+        if source_type.upper() == 'YOUTUBE':
+            if 'youtube_url' not in data:
+                return jsonify(create_error_response("youtube_url이 필요합니다")), 400
+                
+            youtube_url = data['youtube_url']
+            update_progress(task_id, "queued", 0, "YouTube URL 처리 대기 중")
+            
+            # 작업 큐에 추가 (콜백 URL과 lecture_id 포함)
+            task_queue.put((task_id, None, youtube_url, callback_url, lecture_id))
+            
+        elif source_type.upper() == 'FILE':
+            if 'file_url' not in data:
+                return jsonify(create_error_response("file_url이 필요합니다")), 400
+                
+            file_url = data['file_url']
+            update_progress(task_id, "queued", 0, "파일 처리 대기 중")
+            
+            # 작업 큐에 추가 (콜백 URL과 lecture_id 포함)
+            task_queue.put((task_id, file_url, None, callback_url, lecture_id))
+            
+        else:
+            return jsonify(create_error_response("지원되지 않는 source_type입니다")), 400
+            
+        return jsonify(create_success_response(
+            message="처리 대기열에 추가됨",
+            data={"task_id": task_id, "lecture_id": lecture_id, "status": "queued"}
+        )), 202
+            
     except Exception as e:
         logger.error(f"처리 요청 실패: {str(e)}")
         return jsonify(create_error_response(str(e))), 500
