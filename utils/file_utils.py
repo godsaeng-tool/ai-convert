@@ -4,6 +4,7 @@ import shutil
 from werkzeug.utils import secure_filename
 import subprocess
 from config import logger, ALLOWED_EXTENSIONS
+from flask import current_app as app
 
 def sanitize_filename(filename):
     """파일명에서 시스템에 문제가 될 수 있는 특수문자 제거"""
@@ -15,16 +16,21 @@ def allowed_file(filename):
     """허용된 파일 확장자인지 확인"""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-def save_uploaded_file(file, upload_dir, filename=None):
+def save_uploaded_file(file, upload_dir, filename):
     """업로드된 파일을 안전하게 저장"""
     try:
         os.makedirs(upload_dir, exist_ok=True)
-        
-        if filename is None:
-            filename = sanitize_filename(secure_filename(file.filename))
-        
         file_path = os.path.join(upload_dir, filename)
+        
+        # 파일 크기 확인
+        file.seek(0, os.SEEK_END)
+        size = file.tell()
+        if size > app.config['MAX_CONTENT_LENGTH']:
+            raise ValueError(f"파일 크기가 너무 큽니다. 최대 {app.config['MAX_CONTENT_LENGTH'] / (1024*1024*1024)}GB까지 허용됩니다.")
+        
+        file.seek(0)  # 파일 포인터 리셋
         file.save(file_path)
+        
         return file_path
     except Exception as e:
         logger.error(f"파일 저장 실패: {str(e)}")
