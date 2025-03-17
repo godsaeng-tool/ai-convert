@@ -27,6 +27,7 @@ pip install flask flask-cors python-dotenv
 
 # AI 및 벡터 DB
 pip install openai llama-index faiss-cpu
+pip install llama-index-vector-stores-faiss
 
 # 오디오/비디오 처리
 pip install yt-dlp whisper ffmpeg-python
