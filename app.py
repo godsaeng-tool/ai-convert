@@ -24,7 +24,7 @@ from main_processor import process_lecture
 
 # AI 서비스 모듈 가져오기
 from ai_services.generation import (
-    stream_summary, stream_quiz, stream_study_plan, 
+    stream_summary, stream_quiz, stream_study_plan,
     generate_summary, generate_quiz, generate_study_plan, global_summary
 )
 from ai_services.vector_db import (
@@ -47,22 +47,25 @@ app.config['ALLOWED_EXTENSIONS'] = ALLOWED_EXTENSIONS
 worker = worker_function(process_lecture)
 worker_threads = start_workers(worker, MAX_WORKERS)
 
+
 # 종료 시 정리 함수
 @atexit.register
 def cleanup():
     """애플리케이션 종료 시 정리"""
     stop_workers(MAX_WORKERS)
 
+
 # 메인 페이지
 @app.route('/')
 def index():
     return render_template('test.html')
 
-# 파일 업로드 처리 엔드포인트
+
+# 백엔드 수신용 api
 @app.route('/process', methods=['POST'])
 def process_request():
     """통합 처리 엔드포인트 - 파일 및 URL 처리"""
-    
+
     # Content-Type이 multipart/form-data인 경우 (파일 업로드)
     if 'file' in request.files:
         file = request.files['file']
@@ -88,17 +91,17 @@ def process_request():
 
             # lecture_id가 없으면 기본값으로 1 사용 (숫자 형식)
             lecture_id = request.form.get('lecture_id', '1')
-            
+
             # lecture_id가 숫자인지 확인하고, 숫자가 아니면 기본값 1 사용
             try:
                 lecture_id = int(lecture_id)
             except ValueError:
                 lecture_id = 1
-                
+
             callback_url = request.form.get('callback_url', 'http://localhost:8080/api/ai/callback/complete')
 
             update_progress(task_id, "uploaded", 10, "파일 업로드 완료")
-            
+
             # 작업 큐에 추가 (콜백 URL과 lecture_id 포함)
             task_queue.put((task_id, file_path, None, callback_url, str(lecture_id)))
 
@@ -123,41 +126,41 @@ def process_request():
     elif request.is_json:
         try:
             data = request.get_json()
-            
+
             if 'lecture_id' not in data:
                 return jsonify(create_error_response("lecture_id가 필요합니다")), 400
-                
+
             lecture_id = data['lecture_id']
             source_type = data.get('source_type', 'FILE')
             callback_url = data.get('callback_url')
-            
+
             task_id = str(uuid.uuid4())
-            
+
             if source_type.upper() == 'YOUTUBE':
                 if 'youtube_url' not in data:
                     return jsonify(create_error_response("youtube_url이 필요합니다")), 400
-                    
+
                 youtube_url = data['youtube_url']
                 update_progress(task_id, "queued", 0, "YouTube URL 처리 대기 중")
                 task_queue.put((task_id, None, youtube_url, callback_url, lecture_id))
-                
+
             elif source_type.upper() == 'FILE':
                 if 'file_url' not in data:
                     return jsonify(create_error_response("file_url이 필요합니다")), 400
-                    
+
                 file_url = data['file_url']
                 update_progress(task_id, "queued", 0, "파일 처리 대기 중")
                 task_queue.put((task_id, file_url, None, callback_url, lecture_id))
-            
+
             return jsonify(create_success_response(
                 message="처리 대기열에 추가됨",
                 data={"task_id": task_id, "lecture_id": lecture_id, "status": "queued"}
             )), 202
-                
+
         except Exception as e:
             logger.error(f"처리 요청 실패: {str(e)}")
             return jsonify(create_error_response(str(e))), 500
-    
+
     else:
         return jsonify({
             "success": False,
@@ -165,22 +168,25 @@ def process_request():
             "file_url": None
         }), 400
 
+
 # 작업 진행 상황 조회 엔드포인트
 @app.route('/progress/<task_id>', methods=['GET'])
 def get_task_progress(task_id):
     """작업 진행 상황 조회 엔드포인트"""
     progress = get_progress(task_id)
-    
+
     if not progress:
         return jsonify(create_error_response("작업을 찾을 수 없습니다")), 404
 
     return jsonify(progress), 200
+
 
 # 모든 작업 진행 상황 조회 엔드포인트
 @app.route('/progress/all', methods=['GET'])
 def get_all_task_progress():
     """모든 작업 진행 상황 조회 엔드포인트"""
     return jsonify(get_all_progress()), 200
+
 
 # AI 변환 결과 조회 엔드포인트
 @app.route('/ai/transcribe', methods=['POST'])
@@ -207,6 +213,7 @@ def transcribe_audio():
         result_data = json.load(f)
 
     return jsonify(result_data)
+
 
 # 처리된 오디오 파일 다운로드 엔드포인트
 @app.route('/download/audio/<task_id>', methods=['GET'])
@@ -235,6 +242,7 @@ def download_processed_audio(task_id):
         logger.error(f"파일 다운로드 실패: {str(e)}")
         return jsonify(create_error_response(str(e))), 500
 
+
 # AI 처리 결과 다운로드 엔드포인트
 @app.route('/download/result/<task_id>', methods=['GET'])
 def download_result(task_id):
@@ -262,17 +270,19 @@ def download_result(task_id):
         logger.error(f"결과 다운로드 실패: {str(e)}")
         return jsonify(create_error_response(str(e))), 500
 
+
 # 작업 취소 엔드포인트
 @app.route('/cancel/<task_id>', methods=['POST'])
 def cancel_task(task_id):
     """작업 취소 엔드포인트"""
     progress = get_progress(task_id)
-    
+
     if not progress:
         return jsonify(create_error_response("작업을 찾을 수 없습니다")), 404
 
     update_progress(task_id, "cancelled", 0, "사용자에 의해 취소됨")
     return jsonify(create_success_response("작업 취소 요청됨")), 200
+
 
 # 서버 상태 확인 엔드포인트
 @app.route('/health', methods=['GET'])
@@ -287,6 +297,7 @@ def health_check():
         "queue_size": queue_size,
         "active_tasks": len(get_all_progress())
     }), 200
+
 
 # 요약 생성 엔드포인트
 @app.route('/summary', methods=['POST', 'GET'])
@@ -311,7 +322,7 @@ def summary_api():
                 # 파일 로드
                 with open(os.path.join(app.config['DATA_FOLDER'], f"{lecture_id}.txt"), 'r', encoding='utf-8') as f:
                     text = f.read()
-                
+
                 return Response(
                     stream_with_context(stream_summary(lecture_id, text)),
                     content_type='text/plain; charset=utf-8'
@@ -335,6 +346,7 @@ def summary_api():
     else:
         # GET 요청 - 요약 HTML 페이지 반환
         return render_template('summary.html')
+
 
 # 퀴즈 생성 엔드포인트
 @app.route('/quizzes', methods=['POST', 'GET'])
@@ -378,6 +390,7 @@ def quizzes_api():
         # GET 요청 - 퀴즈 HTML 페이지 반환
         return render_template('quiz.html')
 
+
 # 학습 계획 생성 엔드포인트
 @app.route('/study-plan', methods=['POST', 'GET'])
 def study_plan_api():
@@ -420,6 +433,7 @@ def study_plan_api():
         # GET 요청 - 학습 계획 HTML 페이지 반환
         return render_template('study_plan.html')
 
+
 # 처리 결과 조회
 @app.route('/result/<task_id>', methods=['GET'])
 def get_result(task_id):
@@ -436,6 +450,7 @@ def get_result(task_id):
         logger.error(f"결과 조회 실패: {str(e)}")
         return jsonify(create_error_response(str(e))), 500
 
+
 # 강의 인덱싱 엔드포인트
 @app.route('/index/<task_id>', methods=['POST'])
 def index_lecture(task_id):
@@ -449,6 +464,7 @@ def index_lecture(task_id):
         logger.error(f"강의 인덱싱 실패: {str(e)}")
         return jsonify(create_error_response(str(e))), 500
 
+
 # 질문-답변 API
 @app.route('/query', methods=['POST'])
 def query():
@@ -457,20 +473,21 @@ def query():
         data = request.json
         question = data.get('question')
         task_id = data.get('task_id')
-        
+
         if not task_id:
             return jsonify(create_error_response("task_id가 필요합니다")), 400
-        
+
         if not question:
             return jsonify(create_error_response("question이 필요합니다")), 400
-        
+
         # 스트리밍 대신 전체 응답 한 번에 반환
         answer = generate_answer(task_id, question)  # 스트리밍 없는 함수 사용
         return jsonify(create_success_response(data={"answer": answer}))
-        
+
     except Exception as e:
         logger.error(f"질문 처리 실패: {str(e)}")
         return jsonify(create_error_response(str(e))), 500
+
 
 # 강의 목록 조회
 @app.route('/lectures', methods=['GET'])
@@ -485,69 +502,23 @@ def get_lectures():
                 with open(os.path.join(app.config['DATA_FOLDER'], filename), 'r', encoding='utf-8') as f:
                     first_line = f.readline().strip()
                     title = first_line[:50] + '...' if len(first_line) > 50 else first_line
-                
+
                 lectures.append({
                     "id": lecture_id,
                     "title": title,
                     "date": os.path.getmtime(os.path.join(app.config['DATA_FOLDER'], filename))
                 })
-        
+
         # 날짜 기준 내림차순 정렬
         lectures.sort(key=lambda x: x["date"], reverse=True)
-        
+
         return jsonify(lectures)
     except Exception as e:
         logger.error(f"강의 목록 조회 실패: {str(e)}")
         return jsonify(create_error_response(str(e))), 500
 
-# 백엔드 통합용 처리 API
-@app.route('/process', methods=['POST'])
-def process_api():
-    """백엔드 통합용 처리 API"""
-    try:
-        data = request.get_json()
-        
-        # 필수 파라미터 확인
-        if 'lecture_id' not in data:
-            return jsonify(create_error_response("lecture_id가 필요합니다")), 400
-            
-        lecture_id = data['lecture_id']
-        source_type = data.get('source_type', 'FILE')
-        callback_url = data.get('callback_url')
-        
-        task_id = str(uuid.uuid4())
-        
-        if source_type.upper() == 'YOUTUBE':
-            if 'youtube_url' not in data:
-                return jsonify(create_error_response("youtube_url이 필요합니다")), 400
-                
-            youtube_url = data['youtube_url']
-            update_progress(task_id, "queued", 0, "YouTube URL 처리 대기 중")
-            
-            # 작업 큐에 추가 (콜백 URL과 lecture_id 포함)
-            task_queue.put((task_id, None, youtube_url, callback_url, lecture_id))
-            
-        elif source_type.upper() == 'FILE':
-            if 'file_url' not in data:
-                return jsonify(create_error_response("file_url이 필요합니다")), 400
-                
-            file_url = data['file_url']
-            update_progress(task_id, "queued", 0, "파일 처리 대기 중")
-            
-            # 작업 큐에 추가 (콜백 URL과 lecture_id 포함)
-            task_queue.put((task_id, file_url, None, callback_url, lecture_id))
-            
-        else:
-            return jsonify(create_error_response("지원되지 않는 source_type입니다")), 400
-            
-        return jsonify(create_success_response(
-            message="처리 대기열에 추가됨",
-            data={"task_id": task_id, "lecture_id": lecture_id, "status": "queued"}
-        )), 202
-            
-    except Exception as e:
-        logger.error(f"처리 요청 실패: {str(e)}")
-        return jsonify(create_error_response(str(e))), 500
+
+
 
 if __name__ == '__main__':
     app.run(port=5000, debug=True)
