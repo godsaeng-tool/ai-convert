@@ -55,6 +55,28 @@ def index_lecture_text(task_id):
         logger.error(f"강의 텍스트 인덱싱 실패: {str(e)}")
         return False
 
+# 검증 함수 추가
+def verify_answer(question, answer):
+    """답변의 정확성을 검증"""
+    try:
+        verification_prompt = f"이 질문에 이 답변이 맞아? 예/아니오로만 대답해: 질문: {question} 답변: {answer}"
+
+        verification_response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "당신은 답변의 정확성을 평가하는 역할을 합니다."},
+                {"role": "user", "content": verification_prompt}
+            ]
+        )
+
+        # 검증 결과 추출
+        content = verification_response.choices[0].message.content.strip().rstrip('.')
+        logger.info(f"[검증 결과] 질문: {question} | 검증 결과: {content}")
+        return content
+    except Exception as e:
+        logger.error(f"답변 검증 실패: {str(e)}")
+        return "예"  # 검증 실패 시 기본적으로 답변이 맞다고 가정
+
 def generate_answer(task_id, question):
     """벡터 DB에서 질문에 대한 답변 생성 (스트리밍 없음)"""
     try:
@@ -89,6 +111,25 @@ def generate_answer(task_id, question):
         # 질문에 대한 응답 생성
         response = query_engine.query(full_prompt)
         answer = response.response
+        
+        logger.info(f"[초기 답변] {answer[:100]}...")
+        
+        # 답변 검증
+        verification_result = verify_answer(question, answer)
+        
+        # 검증 결과가 "아니오"이면 새로운 답변 생성
+        if verification_result in ["아니오", "아니요"]:
+            logger.info("[답변 검증] 부적절한 답변으로 간주하여 새 답변을 생성합니다.")
+            
+            new_response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "당신은 강의 내용에 대해 정확한 답변을 제공하는 도우미입니다. 반드시 한국어로 답변해주세요."},
+                    {"role": "user", "content": question}
+                ]
+            )
+            answer = new_response.choices[0].message.content
+            logger.info(f"[수정된 답변] {answer[:100]}...")
         
         # 대화 기록에 AI 응답 추가
         add_to_conversation_history(task_id, "AI", answer)
