@@ -474,6 +474,7 @@ def query():
         data = request.json
         question = data.get('question')
         task_id = data.get('task_id')
+        tone = data.get('tone', 'b')  # 어조 파라미터 추가 (기본값은 'b' - 정중한 어조)
 
         if not task_id:
             return jsonify(create_error_response("task_id가 필요합니다")), 400
@@ -481,8 +482,8 @@ def query():
         if not question:
             return jsonify(create_error_response("question이 필요합니다")), 400
 
-        # 스트리밍 대신 전체 응답 한 번에 반환
-        answer = generate_answer(task_id, question)  # 스트리밍 없는 함수 사용
+        # 스트리밍 대신 전체 응답 한 번에 반환 (어조 파라미터 전달)
+        answer = generate_answer(task_id, question, tone)  # 수정: 어조 파라미터 전달
         return jsonify(create_success_response(data={"answer": answer}))
 
     except Exception as e:

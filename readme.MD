@@ -29,8 +29,9 @@ pip install flask flask-cors python-dotenv
 pip install openai llama-index faiss-cpu
 pip install llama-index-vector-stores-faiss
 
-# 오디오/비디오 처리
+# 문서/오디오/비디오 처리
 pip install yt-dlp whisper ffmpeg-python
+pip install PyMuPDF python-pptx pdfplumber PyPDF2
 
 # 기타 유틸리티
 pip install requests numpy tqdm

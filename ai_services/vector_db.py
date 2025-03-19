@@ -19,6 +19,13 @@ vector_stores = {}  # task_id를 키로 사용하여 각 강의별 벡터 스토
 # 대화 기록 (최근 6개 대화 저장)
 conversation_history = {}  # task_id를 키로 사용하여 각 강의별 대화 기록 저장
 
+# 어조 선택 딕셔너리 추가
+tones = {
+    "a": "공격적이고 빈정대는",
+    "b": "선생님처럼 따뜻하고 정중한",
+    "c": "친구 같은 편한"
+}
+
 def index_lecture_text(task_id):
     """강의 텍스트를 벡터 DB에 인덱싱"""
     try:
@@ -55,16 +62,18 @@ def index_lecture_text(task_id):
         logger.error(f"강의 텍스트 인덱싱 실패: {str(e)}")
         return False
 
-# 검증 함수 추가
-def verify_answer(question, answer):
-    """답변의 정확성을 검증"""
+# 검증 함수 수정 - 어조 파라미터 추가
+def verify_answer(question, answer, tone="b"):
+    """답변의 정확성을 검증 (어조 옵션 포함)"""
     try:
-        verification_prompt = f"이 질문에 이 답변이 맞아? 예/아니오로만 대답해: 질문: {question} 답변: {answer}"
+        tone_description = tones.get(tone, tones["b"])  # 기본값은 정중한 어조
+        
+        verification_prompt = f"이 질문에 대한 답변이 정확한지 평가해 주세요. 답변은 {tone_description} 어조를 반영해야 하지만, 정확성만 평가해야 합니다. 질문: {question} 답변: {answer}. 답변의 정확성만 평가하고, 예/아니오로 답해주세요."
 
         verification_response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "당신은 답변의 정확성을 평가하는 역할을 합니다."},
+                {"role": "system", "content": f"당신은 답변의 정확성을 평가하는 역할을 합니다. 답변은 {tone_description} 어조를 반영해야 하지만, 정확성만 평가해야 합니다."},
                 {"role": "user", "content": verification_prompt}
             ]
         )
@@ -77,8 +86,9 @@ def verify_answer(question, answer):
         logger.error(f"답변 검증 실패: {str(e)}")
         return "예"  # 검증 실패 시 기본적으로 답변이 맞다고 가정
 
-def generate_answer(task_id, question):
-    """벡터 DB에서 질문에 대한 답변 생성 (스트리밍 없음)"""
+# generate_answer 함수 수정 - 어조 파라미터 추가
+def generate_answer(task_id, question, tone="b"):
+    """벡터 DB에서 질문에 대한 답변 생성 (스트리밍 없음, 어조 옵션 포함)"""
     try:
         # 벡터 DB 초기화 확인
         if not os.path.exists(os.path.join(DATA_FOLDER, f"{task_id}.txt")):
@@ -88,9 +98,12 @@ def generate_answer(task_id, question):
         if task_id not in conversation_history:
             conversation_history[task_id] = deque(maxlen=6)
         
-        # 대화 기록 포함한 프롬프트 생성
+        # 어조 정보 가져오기
+        tone_description = tones.get(tone, tones["b"])  # 기본값은 정중한 어조
+        
+        # 대화 기록 포함한 프롬프트 생성 (어조 추가)
         context = "\n".join([f"{role}: {content}" for role, content in conversation_history[task_id]])
-        full_prompt = f"이전 대화:\n{context}\n\n사용자 질문: {question}\n\n한국어로 답변해주세요."
+        full_prompt = f"이전 대화:\n{context}\n\n사용자 질문: {question}\n\n{tone_description} 어조로 한국어로 답변해주세요."
         
         # 대화 기록에 사용자 질문 추가
         add_to_conversation_history(task_id, "사용자", question)
@@ -103,9 +116,9 @@ def generate_answer(task_id, question):
         # 벡터 인덱스 생성
         index = VectorStoreIndex.from_documents(documents)
         
-        # 쿼리 엔진 생성 - 한국어 응답 설정
+        # 쿼리 엔진 생성 - 한국어 응답 및 어조 설정
         query_engine = index.as_query_engine(
-            system_prompt="당신은 강의 내용에 대해 답변하는 도우미입니다. 반드시 한국어로 답변해주세요."
+            system_prompt=f"당신은 강의 내용에 대해 답변하는 도우미입니다. {tone_description} 어조로 한국어로 답변해주세요."
         )
         
         # 질문에 대한 응답 생성
@@ -114,8 +127,8 @@ def generate_answer(task_id, question):
         
         logger.info(f"[초기 답변] {answer[:100]}...")
         
-        # 답변 검증
-        verification_result = verify_answer(question, answer)
+        # 답변 검증 (어조 포함)
+        verification_result = verify_answer(question, answer, tone)
         
         # 검증 결과가 "아니오"이면 새로운 답변 생성
         if verification_result in ["아니오", "아니요"]:
@@ -124,7 +137,7 @@ def generate_answer(task_id, question):
             new_response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "당신은 강의 내용에 대해 정확한 답변을 제공하는 도우미입니다. 반드시 한국어로 답변해주세요."},
+                    {"role": "system", "content": f"당신은 강의 내용에 대해 정확한 답변을 제공하는 도우미입니다. {tone_description} 어조로 한국어로 답변해주세요."},
                     {"role": "user", "content": question}
                 ]
             )
@@ -140,6 +153,36 @@ def generate_answer(task_id, question):
         logger.error(f"질의 처리 실패: {str(e)}")
         return f"오류가 발생했습니다: {str(e)}"
 
+# 스트리밍 답변 생성 함수 수정
+def generate_streaming_answer(task_id, question, tone="b"):
+    """벡터 DB 기반으로 스트리밍 답변 생성 (어조 옵션 포함)"""
+    # 대화 기록이 없으면 초기화
+    if task_id not in conversation_history:
+        conversation_history[task_id] = deque(maxlen=6)
+    
+    # 어조 정보 가져오기
+    tone_description = tones.get(tone, tones["b"])  # 기본값은 정중한 어조
+    
+    # 대화 기록 포함한 프롬프트 생성
+    context = "\n".join([f"{role}: {content}" for role, content in conversation_history[task_id]])
+    full_prompt = f"이전 대화:\n{context}\n\n사용자 질문: {question}\n\n{tone_description} 어조로 한국어로 답변해주세요."
+    
+    # 대화 기록에 사용자 질문 추가
+    add_to_conversation_history(task_id, "사용자", question)
+    
+    # 벡터 DB에서 관련 정보 검색 (어조 포함)
+    answer = generate_answer(task_id, full_prompt, tone)
+    
+    # 응답을 청크로 분할하여 스트리밍
+    chunk_size = 30
+    for i in range(0, len(answer), chunk_size):
+        chunk = answer[i:i + chunk_size]
+        yield chunk
+    
+    # 대화 기록에 AI 응답 추가
+    add_to_conversation_history(task_id, "AI", answer)
+
+# 기존 함수 유지
 def get_conversation_history(task_id):
     """대화 기록 가져오기"""
     if task_id not in conversation_history:
@@ -151,28 +194,3 @@ def add_to_conversation_history(task_id, role, content):
     if task_id not in conversation_history:
         conversation_history[task_id] = deque(maxlen=6)
     conversation_history[task_id].append((role, content))
-
-def generate_streaming_answer(task_id, question):
-    """벡터 DB 기반으로 스트리밍 답변 생성"""
-    # 대화 기록이 없으면 초기화
-    if task_id not in conversation_history:
-        conversation_history[task_id] = deque(maxlen=6)
-    
-    # 대화 기록 포함한 프롬프트 생성
-    context = "\n".join([f"{role}: {content}" for role, content in conversation_history[task_id]])
-    full_prompt = f"이전 대화:\n{context}\n\n사용자 질문: {question}"
-    
-    # 대화 기록에 사용자 질문 추가
-    add_to_conversation_history(task_id, "사용자", question)
-    
-    # 벡터 DB에서 관련 정보 검색
-    answer = generate_answer(task_id, full_prompt)
-    
-    # 응답을 청크로 분할하여 스트리밍
-    chunk_size = 30
-    for i in range(0, len(answer), chunk_size):
-        chunk = answer[i:i + chunk_size]
-        yield chunk
-    
-    # 대화 기록에 AI 응답 추가
-    add_to_conversation_history(task_id, "AI", answer)
