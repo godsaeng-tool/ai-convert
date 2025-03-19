@@ -25,8 +25,8 @@
                                     <div class="dropzone" id="dropzone">
                                         <i class="fas fa-cloud-upload-alt"></i>
                                         <p>파일을 끌어서 놓거나 클릭하여 선택하세요</p>
-                                        <p class="text-muted small">지원 형식: MP4, AVI, MOV, MP3, WAV</p>
-                                        <input type="file" id="fileInput" class="d-none" accept=".mp4,.avi,.mov,.mp3,.wav,.flac,.mkv,.webm">
+                                        <p class="text-muted small">지원 형식: MP4, AVI, MOV, MP3, WAV, PDF, PPT, PPTX</p>
+                                        <input type="file" id="fileInput" class="d-none" accept=".mp4,.avi,.mov,.mp3,.wav,.flac,.mkv,.webm,.pdf,.ppt,.pptx">
                                     </div>
                                     <div class="selected-file mt-3 d-none">
                                         <p><strong>선택된 파일:</strong> <span id="fileName"></span></p>
@@ -244,6 +244,7 @@
     let currentTaskId = null;
     let progressInterval = null;
     let currentLectureId = null;
+    let maxProgress = 0; // 전역 변수로 최대 진행률 추적
 
     // 드롭존 이벤트 설정
     const dropzone = document.getElementById('dropzone');
@@ -318,7 +319,7 @@
     function uploadFile(formData) {
         showProgress();
         
-        fetch('/process/file', {
+        fetch('/process', {
             method: 'POST',
             body: formData
         })
@@ -367,7 +368,7 @@
     function processUrl(url) {
         showProgress();
         
-        fetch('/process/url', {
+        fetch('/process', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -422,10 +423,22 @@
             clearInterval(progressInterval);
         }
         
+        // 새 작업 시작 시 최대 진행률 초기화
+        maxProgress = 0;
+        
         progressInterval = setInterval(() => {
             fetch(`/progress/${taskId}`)
             .then(response => response.json())
             .then(data => {
+                // 진행률 역행 방지 - 이전에 더 높은 진행률이 있었다면 유지
+                if (data.progress < maxProgress && data.status !== 'failed' && data.status !== 'cancelled') {
+                    console.log(`진행률 역행 방지: ${data.progress}% → ${maxProgress}%`);
+                    data.progress = maxProgress;
+                } else {
+                    // 새로운 최대 진행률 기록
+                    maxProgress = Math.max(maxProgress, data.progress);
+                }
+                
                 updateProgressUI(data);
                 
                 // 완료 또는 실패 시 폴링 중단
@@ -440,6 +453,9 @@
                     } else if (data.status === 'cancelled') {
                         showAlert('작업이 취소되었습니다.', 'warning');
                     }
+                    
+                    // 폴링 종료 시 최대 진행률 초기화
+                    maxProgress = 0;
                 }
             })
             .catch(error => {
@@ -462,54 +478,85 @@
         progressBar.style.width = `${data.progress}%`;
         progressPercent.textContent = `${data.progress}%`;
         
-        // 상태 텍스트 업데이트
+        // 메시지에서 문서 처리 여부 확인
+        const isDocumentProcessing = data.message && (
+            data.message.includes('문서') || 
+            data.message.includes('텍스트 추출') || 
+            data.message.includes('PDF') || 
+            data.message.includes('PPT')
+        );
+        
+        // 상태 텍스트 업데이트 - 진행률 기반
         let statusText = '준비 중...';
         
-        switch (data.status) {
-            case 'queued':
-                statusText = '대기열에 추가됨';
-                break;
-            case 'downloading':
-                statusText = '다운로드 중';
-                break;
-            case 'processing':
-                statusText = '오디오 추출 중';
-                break;
-            case 'ai_processing':
-                statusText = 'AI 변환 중';
-                break;
-            case 'transcribed':
-                statusText = '변환 완료';
-                break;
-            case 'summarizing':
-                statusText = '요약 생성 중';
-                break;
-            case 'summarized':
-                statusText = '요약 완료';
-                break;
-            case 'quiz_generating':
-                statusText = '퀴즈 생성 중';
-                break;
-            case 'plan_generating':
-                statusText = '학습 계획 생성 중';
-                break;
-            case 'completed':
-                statusText = '처리 완료';
-                break;
-            case 'failed':
-                statusText = '처리 실패';
-                progressBar.classList.remove('bg-primary');
-                progressBar.classList.add('bg-danger');
-                break;
-            case 'cancelled':
-                statusText = '취소됨';
-                progressBar.classList.remove('bg-primary');
-                progressBar.classList.add('bg-warning');
-                break;
+        if (data.progress >= 90) {
+            statusText = 'AI 분석 마무리 중...';
+        } else if (data.progress >= 70) {
+            statusText = '요약/퀴즈/학습계획 생성 중...';
+        } else if (data.progress >= 60) {
+            statusText = '텍스트 처리 중...';
+        } else {
+            // 60% 미만인 경우 상태에 따라 메시지 표시
+            switch (data.status) {
+                case 'queued':
+                    statusText = '대기열에 추가됨';
+                    break;
+                case 'downloading':
+                    statusText = '다운로드 중';
+                    break;
+                case 'processing':
+                    // 문서 처리 감지 시 다른 메시지 표시
+                    if (isDocumentProcessing) {
+                        statusText = '문서 텍스트 추출 중';
+                    } else {
+                        statusText = '오디오 추출 중';
+                    }
+                    break;
+                case 'ai_processing':
+                    statusText = 'AI 변환 중';
+                    break;
+                case 'transcribed':
+                    statusText = '변환 완료';
+                    break;
+                case 'summarizing':
+                    statusText = '요약 생성 중';
+                    break;
+                case 'summarized':
+                    statusText = '요약 완료';
+                    break;
+                case 'quiz_generating':
+                    statusText = '퀴즈 생성 중';
+                    break;
+                case 'plan_generating':
+                    statusText = '학습 계획 생성 중';
+                    break;
+                case 'completed':
+                    statusText = '처리 완료';
+                    break;
+                case 'failed':
+                    statusText = '처리 실패';
+                    progressBar.classList.remove('bg-primary');
+                    progressBar.classList.add('bg-danger');
+                    break;
+                case 'cancelled':
+                    statusText = '취소됨';
+                    progressBar.classList.remove('bg-primary');
+                    progressBar.classList.add('bg-warning');
+                    break;
+            }
         }
         
         progressStatus.textContent = statusText;
         progressMessage.textContent = data.message || '';
+        
+        // 디버깅용 로그
+        console.log('Progress update:', {
+            status: data.status, 
+            message: data.message, 
+            progress: data.progress,
+            isDocumentProcessing: isDocumentProcessing,
+            displayStatus: statusText
+        });
     }
 
     // 진행 상황 표시

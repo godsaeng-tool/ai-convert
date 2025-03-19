@@ -203,10 +203,11 @@ def transcribe_audio():
     if not os.path.exists(result_dir):
         return jsonify(create_error_response("결과 파일을 찾을 수 없습니다")), 404
 
-    result_files = [f for f in os.listdir(result_dir) if f.endswith('_result.json')]
+    # _result.json 또는 _complete.json 파일 찾기
+    result_files = [f for f in os.listdir(result_dir) if f.endswith('_result.json') or f.endswith('_complete.json')]
 
     if not result_files:
-        return jsonify(create_error_response("스크립트 변환 결과를 찾을 수 없습니다")), 404
+        return jsonify(create_error_response("텍스트 변환 결과를 찾을 수 없습니다")), 404
 
     result_path = os.path.join(result_dir, result_files[0])
     with open(result_path, 'r', encoding='utf-8') as f:

@@ -27,7 +27,7 @@ if not OPENAI_API_KEY:
     raise ValueError("OpenAI API 키가 설정되지 않았습니다. .env 파일을 확인하세요.")
 
 # 파일 업로드 관련 설정
-ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv', 'webm', 'mp3', 'wav', 'flac', 'm4a'}
+ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv', 'webm', 'mp3', 'wav', 'flac', 'm4a', 'pdf', 'pptx', 'docx', 'doc'}
 MAX_CONTENT_LENGTH = 5 * 1024 * 1024 * 1024  # 5GB 제한
 
 # 워커 관련 설정
