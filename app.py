@@ -98,12 +98,21 @@ def process_request():
             except ValueError:
                 lecture_id = 1
 
+            # 남은 일수 정보 추출
+            remaining_days = request.form.get('remaining_days', 5)
+            try:
+                remaining_days = int(remaining_days)
+            except ValueError:
+                remaining_days = 5
+            
+            logger.info(f"파일 업로드 - 남은 일수: {remaining_days}, 강의 ID: {lecture_id}")
+
             callback_url = request.form.get('callback_url', 'http://localhost:8080/api/ai/callback/complete')
 
             update_progress(task_id, "uploaded", 10, "파일 업로드 완료")
 
-            # 작업 큐에 추가 (콜백 URL과 lecture_id 포함)
-            task_queue.put((task_id, file_path, None, callback_url, str(lecture_id)))
+            # 작업 큐에 추가 (remaining_days 추가)
+            task_queue.put((task_id, file_path, None, callback_url, str(lecture_id), remaining_days))
 
             # Spring Boot가 기대하는 응답 형식
             return jsonify({
