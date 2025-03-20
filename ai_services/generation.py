@@ -21,8 +21,13 @@ def generate_summary(task_id, transcribed_text):
             model="gpt-4o-mini",
             messages=[
                 {'role': 'system', 'content': 'you are a helpful assistant'},
-                {"role": "user", "content": f'''아래의 강의 내용을 자세하게 핵심요약해서 정리해줘!
+                {"role": "user", "content": f'''아래의 강의 내용을 자세하게 핵심요약해서 정리해줘
+                1. 강의주제를 먼저 정리해줘
+                2. 요약을 그다음에 형식에 맞춰서 정리해줘
+                3. 주제별로 번호를 메겨서 자세하게 정리해줘
                 ${transcribed_text}
+                강의주제:
+                요약:
                 '''}
             ],
             temperature=0.5
@@ -55,6 +60,7 @@ def generate_summary(task_id, transcribed_text):
         logger.error(f"요약 생성 실패: {str(e)}")
         update_progress(task_id, "failed", 91, f"요약 생성 실패: {str(e)}")
         raise
+
 
 def generate_quiz(task_id, summary_text):
     """강의 요약에 기반한 퀴즈 생성"""
