@@ -126,13 +126,19 @@ def process_request():
     elif request.is_json:
         try:
             data = request.get_json()
-
+            # 로그 추가
+            logger.info(f"요청 데이터: {data}")
+            
             if 'lecture_id' not in data:
                 return jsonify(create_error_response("lecture_id가 필요합니다")), 400
 
             lecture_id = data['lecture_id']
             source_type = data.get('source_type', 'FILE')
             callback_url = data.get('callback_url')
+            
+            # 입력받은 일수 정보보보 (스프링에서 보내는 remaining_days 검색)
+            remaining_days = data.get('remaining_days', 5)
+            logger.info(f"시험까지 남은 일수: {remaining_days}")
 
             task_id = str(uuid.uuid4())
 
@@ -141,16 +147,20 @@ def process_request():
                     return jsonify(create_error_response("youtube_url이 필요합니다")), 400
 
                 youtube_url = data['youtube_url']
+                # 로그 추가: YouTube URL 출력
+                logger.info(f"YouTube URL: {youtube_url}")
                 update_progress(task_id, "queued", 0, "YouTube URL 처리 대기 중")
-                task_queue.put((task_id, None, youtube_url, callback_url, lecture_id))
+                task_queue.put((task_id, None, youtube_url, callback_url, lecture_id, remaining_days))
 
             elif source_type.upper() == 'FILE':
                 if 'file_url' not in data:
                     return jsonify(create_error_response("file_url이 필요합니다")), 400
 
                 file_url = data['file_url']
+                # 로그 추가: 파일 URL 출력
+                logger.info(f"파일 URL: {file_url}")
                 update_progress(task_id, "queued", 0, "파일 처리 대기 중")
-                task_queue.put((task_id, file_url, None, callback_url, lecture_id))
+                task_queue.put((task_id, file_url, None, callback_url, lecture_id, remaining_days))
 
             return jsonify(create_success_response(
                 message="처리 대기열에 추가됨",
@@ -403,8 +413,12 @@ def study_plan_api():
         lecture_id = request.json['lecture_id']
         streaming = request.json.get('streaming', True)
         
-        # remaining_days 파라미터 추가 (기본값: 5)
+        # 스프링부트에서 보내는 이름(snake_case)으로 파라미터 찾기
         remaining_days = request.json.get('remaining_days', 5)
+        
+        # 디버깅을 위한 로그
+        logger.info(f"요청 데이터: {request.json}")
+        logger.info(f"학습 계획 생성: lecture_id={lecture_id}, remaining_days={remaining_days}")
         
         # 정수로 변환 시도
         try:
@@ -530,9 +544,6 @@ def get_lectures():
     except Exception as e:
         logger.error(f"강의 목록 조회 실패: {str(e)}")
         return jsonify(create_error_response(str(e))), 500
-
-
-
 
 if __name__ == '__main__':
     app.run(port=5000, debug=True)

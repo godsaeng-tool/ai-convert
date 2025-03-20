@@ -52,29 +52,25 @@ def get_all_progress():
     with lock:
         return progress_tracker.copy()
 
-def worker_function(process_function):
-    """작업 큐에서 작업을 가져와 처리하는 워커 함수"""
+def worker_function(processor_func):
     def worker():
         while True:
             try:
-                # 큐에서 작업 가져오기
-                item = task_queue.get()
+                # 작업 큐에서 작업 가져오기
+                task = task_queue.get()
+                if len(task) >= 6:  # 새 형식 (remaining_days 포함)
+                    task_id, file_path, youtube_url, callback_url, lecture_id, remaining_days = task
+                else:  # 이전 형식 호환성 유지
+                    task_id, file_path, youtube_url, callback_url, lecture_id = task
+                    remaining_days = 5  # 기본값
                 
-                # None은 종료 신호
-                if item is None:
-                    logger.info("워커 종료 신호 받음")
-                    break
-                    
-                # 작업 처리
-                process_function(*item)
+                # 프로세서 함수 호출 (남은 일수 전달)
+                processor_func(task_id, file_path, youtube_url, callback_url, lecture_id, remaining_days)
                 
-            except Exception as e:
-                logger.error(f"워커 처리 중 오류: {str(e)}")
-            finally:
                 # 작업 완료 표시
-                if 'task_queue' in globals() and task_queue is not None:
-                    task_queue.task_done()
-    
+                task_queue.task_done()
+            except Exception as e:
+                logger.error(f"작업 처리 중 오류 발생: {str(e)}")
     return worker
 
 def start_workers(worker_function, num_workers=MAX_WORKERS):

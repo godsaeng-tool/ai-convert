@@ -13,7 +13,7 @@ from ai_services.transcription import transcribe_audio
 from ai_services.generation import generate_summary, generate_quiz, generate_study_plan
 from ai_services.vector_db import index_lecture_text
 
-def process_lecture(task_id, file_path=None, url=None, callback_url=None, lecture_id=None):
+def process_lecture(task_id, file_path=None, url=None, callback_url=None, lecture_id=None, remaining_days=5):
     """강의 처리 메인 함수"""
     try:
         # 결과 디렉토리 생성 (한 번만 생성)
@@ -90,7 +90,7 @@ def process_lecture(task_id, file_path=None, url=None, callback_url=None, lectur
         
         # 7. 학습 계획 생성
         update_progress(task_id, "processing", 90, "학습 계획 생성 중...")
-        study_plan = generate_study_plan(task_id, summary_text)
+        study_plan = generate_study_plan(task_id, summary_text, remaining_days)
         
         # 8. 벡터 DB 인덱싱
         update_progress(task_id, "processing", 95, "벡터 DB 인덱싱 중...")
