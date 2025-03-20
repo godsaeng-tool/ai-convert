@@ -402,6 +402,18 @@ def study_plan_api():
 
         lecture_id = request.json['lecture_id']
         streaming = request.json.get('streaming', True)
+        
+        # remaining_days 파라미터 추가 (기본값: 5)
+        remaining_days = request.json.get('remaining_days', 5)
+        
+        # 정수로 변환 시도
+        try:
+            remaining_days = int(remaining_days)
+            # 일수 범위 제한 (1~30일)
+            remaining_days = max(1, min(30, remaining_days))
+        except (ValueError, TypeError):
+            # 변환 실패 시 기본값 5 사용
+            remaining_days = 5
 
         # 요약 데이터 확인
         if lecture_id not in global_summary or not global_summary[lecture_id]:
@@ -417,16 +429,16 @@ def study_plan_api():
                 return jsonify(create_error_response('요약 결과가 없습니다. 먼저 /summary 엔드포인트를 호출하세요.')), 400
 
         if streaming:
-            # 스트리밍 방식 응답
+            # 스트리밍 방식 응답 - remaining_days 전달
             return Response(
-                stream_with_context(stream_study_plan(lecture_id)),
+                stream_with_context(stream_study_plan(lecture_id, remaining_days)),
                 content_type='text/plain; charset=utf-8'
             )
         else:
-            # 비동기 학습 계획 생성 요청
+            # 비동기 학습 계획 생성 요청 - remaining_days 전달
             try:
-                plan_text = generate_study_plan(lecture_id, global_summary[lecture_id])
-                return jsonify(create_success_response(data={"plan": plan_text}))
+                plan_text = generate_study_plan(lecture_id, global_summary[lecture_id], remaining_days)
+                return jsonify(create_success_response(data={"plan": plan_text, "days": remaining_days}))
             except Exception as e:
                 logger.error(f"학습 계획 생성 실패: {str(e)}")
                 return jsonify(create_error_response(str(e))), 500

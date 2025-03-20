@@ -106,18 +106,18 @@ def generate_quiz(task_id, summary_text):
         update_progress(task_id, "failed", 96, f"퀴즈 생성 실패: {str(e)}")
         raise
 
-def generate_study_plan(task_id, summary_text):
+def generate_study_plan(task_id, summary_text, remaining_days=5):
     """강의 요약에 기반한 학습 계획 생성"""
     try:
-        update_progress(task_id, "plan_generating", 98, "학습 계획 생성 중...")
+        update_progress(task_id, "plan_generating", 98, f"{remaining_days}일치 학습 계획 생성 중...")
 
         # 학습 계획 생성
         res = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {'role': 'system', 'content': 'you are a helpful assistant'},
-                {"role": "user", "content": f'''아래의 강의 핵심요약을 토대로 해당 내용을 효과적으로 학습하기 위한 단계별 학습 계획을 만들어줘. 
-                1. 5일 커리큘럼 형태로 구성하고 
+                {"role": "user", "content": f'''아래의 강의 핵심요약을 토대로 해당 내용을 효과적으로 학습하기 위해 남은 {remaining_days}일 동안의 단계별 학습 계획을 만들어줘. 
+                1. {remaining_days}일 커리큘럼 형태로 구성하고 
                 2. 각 일차별 학습 목표, 학습 활동, 복습 방법을 포함해줘.
                 3. 학습 난이도를 점진적으로 높여가면서 내용을 완전히 이해하고 적용할 수 있는 계획이어야 해.
                 
@@ -137,14 +137,15 @@ def generate_study_plan(task_id, summary_text):
         
         plan_data = {
             "status": "plan_generated",
-            "message": "학습 계획 생성 완료",
-            "plan_text": plan_text
+            "message": f"{remaining_days}일치 학습 계획 생성 완료",
+            "plan_text": plan_text,
+            "days": remaining_days
         }
 
         with open(result_path, 'w', encoding='utf-8') as f:
             json.dump(plan_data, f, ensure_ascii=False, indent=4)
 
-        update_progress(task_id, "plan_completed", 99, "학습 계획 완료", {"plan": plan_text})
+        update_progress(task_id, "plan_completed", 99, f"{remaining_days}일치 학습 계획 완료", {"plan": plan_text, "days": remaining_days})
         return plan_text
 
     except Exception as e:
@@ -213,9 +214,9 @@ def stream_quiz(task_id):
         if chunk.choices and chunk.choices[0].delta.content:
             yield chunk.choices[0].delta.content
 
-def stream_study_plan(task_id):
+def stream_study_plan(task_id, remaining_days=5):
     """학습 계획 결과를 스트리밍 방식으로 반환"""
-    update_progress(task_id, "streaming_plan", 98, "학습 계획 스트리밍 중...")
+    update_progress(task_id, "streaming_plan", 98, f"{remaining_days}일치 학습 계획 스트리밍 중...")
 
     # 요약 확인
     if task_id not in global_summary:
@@ -229,8 +230,8 @@ def stream_study_plan(task_id):
         model="gpt-4o-mini",
         messages=[
             {'role': 'system', 'content': 'you are a helpful assistant'},
-            {"role": "user", "content": f'''아래의 강의 핵심요약을 토대로 해당 내용을 효과적으로 학습하기 위한 단계별 학습 계획을 만들어줘. 
-            1. 5일 커리큘럼 형태로 구성하고 
+            {"role": "user", "content": f'''아래의 강의 핵심요약을 토대로 해당 내용을 효과적으로 학습하기 위해 남은 {remaining_days}일 동안의 단계별 학습 계획을 만들어줘. 
+            1. {remaining_days}일 커리큘럼 형태로 구성하고 
             2. 각 일차별 학습 목표, 학습 활동, 복습 방법을 포함해줘.
             3. 학습 난이도를 점진적으로 높여가면서 내용을 완전히 이해하고 적용할 수 있는 계획이어야 해.
             
