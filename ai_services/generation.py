@@ -22,9 +22,10 @@ def generate_summary(task_id, transcribed_text):
             messages=[
                 {'role': 'system', 'content': 'you are a helpful assistant'},
                 {"role": "user", "content": f'''아래의 강의 내용을 자세하게 핵심요약해서 정리해줘
-                1. 강의주제를 먼저 정리해줘
-                2. 요약을 그다음에 형식에 맞춰서 정리해줘
-                3. 주제별로 번호를 메겨서 자세하게 정리해줘
+                1. 강의주제를 먼저 정리해줘.
+                2. 요약을 그다음에 형식에 맞춰서 정리해줘.
+                3. 주제별로 번호를 메겨서 학생들이 공부할 수 있도록 자세하게 정리해줘.
+                4. 학생들이 강의 요약만 보고도 강의 핵심 개념에 대해 알고 공부할 수 있도록 내용을 완전히 이해하고 적용할 수 있는 요약이어야 해.
                 ${transcribed_text}
                 강의주제:
                 요약:

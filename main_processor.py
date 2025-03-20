@@ -64,7 +64,7 @@ def process_lecture(task_id, file_path=None, url=None, callback_url=None, lectur
             # 스크립트 품질 개선 (새로운 단계)
             update_progress(task_id, "processing", 65, "스크립트 품질 개선 중...")
             transcribed_text = enhance_video_transcript(raw_transcribed_text)
-            logger.info(f"스크립트 품질 개선 완료: {len(raw_transcribed_text)} → {len(transcribed_text)} 문자")
+            #logger.info(f"스크립트 품질 개선 완료: {len(raw_transcribed_text)} → {len(transcribed_text)} 문자")
 
         # 텍스트 변환 이후의 공통 AI 처리 부분
         
