@@ -22,9 +22,9 @@ conversation_history = {}  # task_id를 키로 사용하여 각 강의별 대화
 
 # 어조 선택 딕셔너리 추가
 tones = {
-    "a": "공격적이고 빈정대는",
-    "b": "선생님처럼 따뜻하고 정중한",
-    "c": "친구 같은 편한"
+    "a": "플러팅하는 듯한",
+    "b": "까칠한 츤데레 ",
+    "c": "초월적 존재(신 or 철학자) "
 }
 
 def index_lecture_text(task_id):

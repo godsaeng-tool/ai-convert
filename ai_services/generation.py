@@ -73,7 +73,7 @@ def generate_quiz(task_id, summary_text):
             model="gpt-4o-mini",
             messages=[
                 {'role': 'system', 'content': 'you are a helpful assistant'},
-                {"role": "user", "content": f'''아래의 강의 핵심요약을 토대로 퀴즈 문제와 답 5개만 주관식으로 만들어줘!
+                {"role": "user", "content": f'''아래의 강의 내용의 핵심을 토대로 퀴즈 문제와 답 5개만 주관식으로 만들어줘!
                 ${summary_text}
                 "문제":
                 "정답":
