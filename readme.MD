@@ -35,6 +35,7 @@ pip install PyMuPDF python-pptx pdfplumber PyPDF2
 
 # 기타 유틸리티
 pip install requests numpy tqdm
+pip install sentence-transformers
 ```
 - 이외의 추가 설치가 일부 필요할 수 있습니다.
 

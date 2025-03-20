@@ -6,7 +6,7 @@ from config import logger, RESULTS_FOLDER, UPLOAD_FOLDER, DATA_FOLDER  # DATA_FO
 from utils.queue_worker import update_progress
 from utils.file_utils import cleanup_files
 from utils.api_utils import send_callback
-from processors.video import download_from_url
+from processors.video import download_from_url, enhance_video_transcript
 from processors.audio import extract_audio, prepare_audio_for_transcription
 from processors.document import process_document  # 문서 처리 모듈 import 추가
 from ai_services.transcription import transcribe_audio
@@ -59,7 +59,12 @@ def process_lecture(task_id, file_path=None, url=None, callback_url=None, lectur
             
             # 4. whisper STT 변환
             update_progress(task_id, "processing", 60, "텍스트 변환 중...")
-            transcribed_text = transcribe_audio(task_id, audio_info)
+            raw_transcribed_text = transcribe_audio(task_id, audio_info)
+
+            # 스크립트 품질 개선 (새로운 단계)
+            update_progress(task_id, "processing", 65, "스크립트 품질 개선 중...")
+            transcribed_text = enhance_video_transcript(raw_transcribed_text)
+            logger.info(f"스크립트 품질 개선 완료: {len(raw_transcribed_text)} → {len(transcribed_text)} 문자")
 
         # 텍스트 변환 이후의 공통 AI 처리 부분
         
