@@ -216,7 +216,7 @@ def stream_quiz(task_id):
 
 def stream_study_plan(task_id, remaining_days=5):
     """학습 계획 결과를 스트리밍 방식으로 반환"""
-    update_progress(task_id, "streaming_plan", 98, f"{remaining_days}일치 학습 계획 스트리밍 중...")
+    update_progress(task_id, "plan_generating", 98, f"{remaining_days}일치 학습 계획 생성 중...")
 
     # 요약 확인
     if task_id not in global_summary:
