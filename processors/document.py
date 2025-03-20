@@ -4,90 +4,70 @@ import pptx
 from config import logger
 
 def extract_text_from_pdf(file_path):
-    """PDF 파일에서 텍스트 추출 - 여러 라이브러리 시도"""
-    text = ""
-    errors = []
-    
-    # 1. PyMuPDF 시도 (최우선)
+    """PDF 파일에서 텍스트 추출 - 구조 유지 방식으로 개선"""
     try:
+        text_content = ""
         doc = fitz.open(file_path)
+        
         for page_num in range(len(doc)):
             page = doc[page_num]
-            text += page.get_text() + "\n\n"
+            
+            # 구조화된 텍스트 추출
+            text_dict = page.get_text("dict")
+            page_text = ""
+            
+            for block in text_dict.get("blocks", []):
+                if block["type"] == 0:  # 텍스트 블록만 처리
+                    for line in block.get("lines", []):
+                        line_text = ""
+                        for span in line.get("spans", []):
+                            line_text += span["text"] + " "
+                        page_text += line_text.strip() + "\n"
+                    page_text += "\n"  # 블록 사이 줄바꿈 추가
+            
+            # 페이지 구분자 추가
+            text_content += f"--- 페이지 {page_num+1} ---\n{page_text}\n\n"
+        
         doc.close()
-        logger.info(f"PyMuPDF로 PDF 텍스트 추출 성공: {file_path}")
-        return text
+        logger.info(f"PDF 텍스트 추출 완료: {file_path}")
+        return text_content
     except Exception as e:
-        error_msg = f"PyMuPDF 추출 실패: {str(e)}"
-        logger.warning(error_msg)
-        errors.append(error_msg)
-    
-    # 2. pdfplumber 시도 (2순위)
-    try:
-        import pdfplumber
-        with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n\n"
-        
-        if text.strip():  # 텍스트가 추출되었는지 확인
-            logger.info(f"pdfplumber로 PDF 텍스트 추출 성공: {file_path}")
-            return text
-        else:
-            error_msg = "pdfplumber가 텍스트를 추출했지만 내용이 비어 있습니다"
-            logger.warning(error_msg)
-            errors.append(error_msg)
-    except Exception as e:
-        error_msg = f"pdfplumber 추출 실패: {str(e)}"
-        logger.warning(error_msg)
-        errors.append(error_msg)
-    
-    # 3. PyPDF2 시도 (3순위)
-    try:
-        import PyPDF2
-        with open(file_path, 'rb') as file:
-            pdf_reader = PyPDF2.PdfReader(file)
-            for page_num in range(len(pdf_reader.pages)):
-                page = pdf_reader.pages[page_num]
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n\n"
-        
-        if text.strip():  # 텍스트가 추출되었는지 확인
-            logger.info(f"PyPDF2로 PDF 텍스트 추출 성공: {file_path}")
-            return text
-        else:
-            error_msg = "PyPDF2가 텍스트를 추출했지만 내용이 비어 있습니다"
-            logger.warning(error_msg)
-            errors.append(error_msg)
-    except Exception as e:
-        error_msg = f"PyPDF2 추출 실패: {str(e)}"
-        logger.warning(error_msg)
-        errors.append(error_msg)
-    
-    # 모든 방법이 실패한 경우
-    error_message = "모든 PDF 텍스트 추출 방법이 실패했습니다:\n" + "\n".join(errors)
-    logger.error(error_message)
-    raise Exception(error_message)
+        logger.error(f"PDF 텍스트 추출 실패: {str(e)}")
+        return ""
 
 def extract_text_from_ppt(file_path):
-    """PPT 파일에서 텍스트 추출"""
+    """PPT 파일에서 텍스트 추출 - 구조 정보 유지"""
     try:
         presentation = pptx.Presentation(file_path)
-        text = ""
+        text_content = ""
         
-        for slide in presentation.slides:
+        for slide_num, slide in enumerate(presentation.slides):
+            slide_text = f"--- 슬라이드 {slide_num+1} ---\n"
+            
+            # 제목 추출
+            if slide.shapes.title:
+                title = slide.shapes.title.text.strip()
+                slide_text += f"# {title}\n\n"
+            
+            # 내용 추출 (텍스트 상자, 표 등)
+            slide_content = []
             for shape in slide.shapes:
-                if hasattr(shape, "text"):
-                    text += shape.text + "\n"
-            text += "\n"
+                if hasattr(shape, "text") and shape.text.strip():
+                    # 제목이 아닌 텍스트 추가
+                    if shape != slide.shapes.title:
+                        slide_content.append(shape.text.strip())
+            
+            # 슬라이드 내용 추가
+            if slide_content:
+                slide_text += "\n".join(slide_content) + "\n\n"
+            
+            text_content += slide_text
         
         logger.info(f"PPT 텍스트 추출 완료: {file_path}")
-        return text
+        return text_content
     except Exception as e:
         logger.error(f"PPT 텍스트 추출 실패: {str(e)}")
-        raise
+        return ""
 
 def process_document(file_path, task_id, result_dir, data_dir):
     """문서 파일(PDF/PPT) 처리 및 텍스트 추출"""
