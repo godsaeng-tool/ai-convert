@@ -1,4 +1,4 @@
-# Godsaeng-AI: AI 기반 학습 보조 시스템
+# @godsaeng-tool Godsaeng-AI: AI 기반 학습 보조 시스템
 
 ## 프로젝트 소개
 Godsaeng-AI는 다양한 형식의 강의 자료(비디오, 오디오, PDF, PPT)를 처리하여 텍스트로 변환하고, 생성형 AI를 활용하여 강의 내용을 분석, 요약, 퀴즈 생성, 학습 계획 수립 등을 도와주는 시스템입니다. 또한 RAG(Retrieval-Augmented Generation) 기술을 적용하여 강의 내용에 대한 질의응답 기능을 제공합니다.
