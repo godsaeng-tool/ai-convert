@@ -73,7 +73,7 @@ def process_document(file_path, task_id, result_dir, data_dir):
     """문서 파일(PDF/PPT) 처리 및 텍스트 추출"""
     try:
         # 확장자 확인
-        file_ext = file_path.split('.')[-1].lower()
+        file_ext = os.path.splitext(file_path)[1].lower().lstrip('.')
         
         # 파일 타입에 따라 적절한 처리 함수 호출
         if file_ext == 'pdf':

@@ -28,7 +28,7 @@ def process_lecture(task_id, file_path=None, url=None, callback_url=None, lectur
             update_progress(task_id, "processing", 30, "파일 업로드 완료, 처리 시작")
 
         # 파일 확장자 확인 (파일 유형에 따른 처리 분기 추가)
-        file_ext = file_path.split('.')[-1].lower() if file_path else None
+        file_ext = os.path.splitext(file_path)[1].lower().lstrip('.') if file_path else None
         
         # PDF 또는 PPT 파일인 경우 (문서 처리 경로)
         if file_ext in ['pdf', 'ppt', 'pptx']:
