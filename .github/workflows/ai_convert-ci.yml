@@ -24,14 +24,14 @@ jobs:
           # AI Convert 프로젝트 디렉토리로 이동 (없으면 생성)
           cd /home/ubuntu
           
-          # 기존 ai_convert 디렉토리가 있으면 백업
-          if [ -d "ai_convert" ]; then
-            sudo mv ai_convert ai_convert_backup_$(date +%Y%m%d_%H%M%S)
+          # 기존 ai-convert 디렉토리가 있으면 백업
+          if [ -d "ai-convert" ]; then
+            sudo mv ai-convert ai-convert_backup_$(date +%Y%m%d_%H%M%S)
           fi
           
           # 최신 코드 클론
-          git clone https://github.com/${{ github.repository }} ai_convert
-          cd ai_convert
+          git clone https://github.com/godsaeng-tool/ai-convert.git ai-convert
+          cd ai-convert
           
           # 환경변수 파일 생성
           cat > .env << EOF
