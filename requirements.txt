@@ -10,7 +10,7 @@ ffmpeg-python==0.2.0
 openai-whisper==20231117
 torch==2.0.1
 torchaudio==2.0.2
-sentence-transformers==2.2.2
+sentence-transformers==2.6.1
 llama-index==0.12.49
 llama-index-vector-stores-faiss==0.4.0
 llama-index-embeddings-huggingface==0.5.5
