@@ -21,13 +21,18 @@ jobs:
         username: ${{ secrets.EC2_USERNAME }}
         key: ${{ secrets.EC2_KEY }}
         script: |
-          # AI Convert 프로젝트 디렉토리로 이동 (없으면 생성)
+          # AI Convert 프로젝트 디렉토리로 이동
           cd /home/ubuntu
           
-          # 기존 ai-convert 디렉토리가 있으면 백업
+          # 기존 컨테이너 중지 및 제거
           if [ -d "ai-convert" ]; then
-            sudo mv ai-convert ai-convert_backup_$(date +%Y%m%d_%H%M%S)
+            cd ai-convert
+            sudo docker-compose down 2>/dev/null || true
+            cd /home/ubuntu
           fi
+          
+          # 기존 프로젝트 디렉토리 제거
+          sudo rm -rf ai-convert
           
           # 최신 코드 클론
           git clone https://github.com/godsaeng-tool/ai-convert.git ai-convert
@@ -42,19 +47,40 @@ jobs:
           EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
           EOF
           
-          # 기존 컨테이너 중지 및 제거 (Docker Compose 사용)
-          sudo docker-compose down 2>/dev/null || true
+          # Docker 시스템 정리
           sudo docker system prune -f
           
           # Docker Compose로 빌드 및 실행
+          echo "Building and starting containers..."
           sudo docker-compose up -d --build
           
+          # 컨테이너가 완전히 시작될 때까지 대기
+          echo "⏳ Waiting for containers to start..."
+          sleep 30
+          
           # 컨테이너 상태 확인
-          sleep 15
+          echo "Container status:"
           sudo docker-compose ps
           
-          # 헬스체크
-          sleep 5
-          curl -f http://localhost:5000/health || echo "Health check failed, but container may still be starting"
+          # 컨테이너 로그 확인 (최근 20줄)
+          echo "📋 Recent logs:"
+          sudo docker-compose logs --tail=20 ai-convert-service
           
-          echo "AI Convert deployment completed successfully!"
+          # 향상된 헬스체크 (여러 번 시도)
+          echo "Health check attempts..."
+          for i in {1..5}; do
+            echo "Attempt $i/5:"
+            if curl -f http://localhost:5000/health; then
+              echo "✅ Health check successful!"
+              break
+            else
+              echo "❌ Health check failed, retrying in 10 seconds..."
+              sleep 10
+            fi
+          done
+          
+          # 최종 상태 확인
+          echo "Final deployment status:"
+          sudo docker-compose ps
+          
+          echo "AI Convert deployment process completed!"
