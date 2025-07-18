@@ -11,12 +11,17 @@ Godsaeng-AI는 다양한 형식의 강의 자료(비디오, 오디오, PDF, PPT)
    - YouTube URL을 통한 동영상 자동 다운로드 및 처리
 
 2. **AI 분석 기능**
-   - 강의 내용 요약 생성
-   - 학습 내용 기반 퀴즈 생성
-   - 맞춤형 학습 계획 수립 (남은 학습 일수 기반)
-   - RAG 기반 질의응답 시스템
+   - 강의 내용 요약 생성 (Groq API)
+   - 학습 내용 기반 퀴즈 생성 (Groq API)
+   - 맞춤형 학습 계획 수립 (Groq API)
+   - RAG 기반 질의응답 시스템 (Groq + HuggingFace)
 
-3. **메타데이터 활용**
+3. **로컬 모델 활용**
+   - 로컬 Whisper 모델로 음성 변환 (무료)
+   - HuggingFace 임베딩으로 벡터 검색 (무료)
+   - 외부 API 의존성 최소화
+
+4. **메타데이터 활용**
    - 강의 자료의 출처 정보 추출 및 활용
    - 페이지 정보 보존을 통한 맥락 유지
 
@@ -44,7 +49,7 @@ ai_convert/
 ## 시스템 요구사항
 - Python 3.8 이상
 - FFmpeg (오디오/비디오 처리용)
-- OpenAI API 키
+- Groq API 키
 - 최소 8GB RAM (권장 16GB 이상)
 - 20GB 이상의 디스크 공간
 
@@ -69,11 +74,11 @@ venv\Scripts\activate     # Windows
 pip install flask flask-cors python-dotenv
 
 # AI 및 벡터 DB
-pip install openai llama-index faiss-cpu
-pip install llama-index-vector-stores-faiss
+pip install groq llama-index faiss-cpu sentence-transformers
+pip install llama-index-vector-stores-faiss llama-index-embeddings-huggingface
 
-# 문서/오디오/비디오 처리
-pip install yt-dlp whisper ffmpeg-python
+# 문서/오디오/비디오 처리 (로컬 Whisper)
+pip install yt-dlp openai-whisper torch torchaudio ffmpeg-python
 pip install PyMuPDF python-pptx pdfplumber PyPDF2
 
 # 기타 유틸리티
@@ -83,7 +88,9 @@ pip install sentence-transformers
 
 4. **.env 파일 설정**
 ```
-OPENAI_API_KEY=your_openai_api_key_here
+GROQ_API_KEY=your_groq_api_key_here
+GROQ_MODEL=gemma2-9b-it
+BACKEND_URL=http://localhost:8080
 ```
 
 5. **FFmpeg 설치**

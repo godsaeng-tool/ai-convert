@@ -1,42 +1,49 @@
 import os
 import json
-import openai
-from config import logger, OPENAI_API_KEY, RESULTS_FOLDER, DATA_FOLDER
+import whisper
+from config import logger, WHISPER_MODEL, RESULTS_FOLDER, DATA_FOLDER
 from utils.queue_worker import update_progress
 from processors.audio import cleanup_audio_chunks
 
-# OpenAI 클라이언트 설정
-openai.api_key = OPENAI_API_KEY
-client = openai.OpenAI(api_key=OPENAI_API_KEY)
+# 로컬 Whisper 모델 로드
+try:
+    whisper_model = whisper.load_model(WHISPER_MODEL)
+    logger.info(f"로컬 Whisper 모델 로드 완료: {WHISPER_MODEL}")
+except Exception as e:
+    logger.error(f"Whisper 모델 로드 실패: {str(e)}")
+    whisper_model = None
 
 def transcribe_audio(task_id, audio_info):
     """
-    오디오를 OpenAI Whisper API로 변환하여 텍스트 반환
+    오디오를 로컬 Whisper 모델로 변환하여 텍스트 반환
     audio_info는 prepare_audio_for_transcription에서 반환된 결과
     """
+    if not whisper_model:
+        raise ValueError("Whisper 모델이 로드되지 않았습니다.")
+    
     try:
         if audio_info['is_chunked']:
             return _transcribe_chunked_audio(task_id, audio_info)
         else:
             return _transcribe_single_audio(task_id, audio_info['audio_path'])
     except Exception as e:
-        logger.error(f"Whisper API 처리 실패: {str(e)}")
-        update_progress(task_id, "failed", 0, f"Whisper API 처리 실패: {str(e)}")
+        logger.error(f"로컬 Whisper 처리 실패: {str(e)}")
+        update_progress(task_id, "failed", 0, f"로컬 Whisper 처리 실패: {str(e)}")
         raise
 
 def _transcribe_single_audio(task_id, audio_path):
     """단일 오디오 파일 변환"""
-    update_progress(task_id, "ai_processing", 80, "Whisper API 처리 중...")
+    update_progress(task_id, "ai_processing", 80, "로컬 Whisper 처리 중...")
     
     try:
-        with open(audio_path, "rb") as audio_file:
-            response = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                language="ko"
+        # 로컬 Whisper로 변환
+        result = whisper_model.transcribe(
+            audio_path,
+            language="ko",
+            verbose=False
             )
         
-        transcribed_text = response.text
+        transcribed_text = result["text"]
         
         # 결과 저장 및 반환
         _save_transcription_result(task_id, transcribed_text)
@@ -63,16 +70,15 @@ def _transcribe_chunked_audio(task_id, audio_info):
             update_progress(task_id, "ai_processing", progress,
                            f"청크 {i + 1}/{num_chunks} 처리 중...")
             
-            # API로 청크 처리
-            with open(chunk_file, "rb") as audio_file:
-                response = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    language="ko"
+            # 로컬 Whisper로 청크 처리
+            result = whisper_model.transcribe(
+                chunk_file,
+                language="ko",
+                verbose=False
                 )
             
             # 결과 추가
-            full_text.append(response.text)
+            full_text.append(result["text"])
             
             # 처리된 청크 삭제 (선택적)
             os.remove(chunk_file)

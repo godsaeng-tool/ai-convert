@@ -1,15 +1,32 @@
 import os
 import faiss
-import openai
+from groq import Groq
 from collections import deque
-from config import logger, OPENAI_API_KEY, DATA_FOLDER
+from config import (
+    logger, GROQ_API_KEY, GROQ_MODEL, EMBEDDING_MODEL, DATA_FOLDER
+)
 from llama_index.core import StorageContext, VectorStoreIndex, SimpleDirectoryReader, Document
 from llama_index.vector_stores.faiss import FaissVectorStore
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.core import Settings
 import re
 
-# OpenAI 클라이언트 설정
-openai.api_key = OPENAI_API_KEY
-client = openai.OpenAI(api_key=OPENAI_API_KEY)
+# Groq 클라이언트 설정
+try:
+    groq_client = Groq(api_key=GROQ_API_KEY)
+    logger.info("Groq client initialized for vector DB Q&A")
+except Exception as e:
+    logger.error(f"Groq client 초기화 실패: {str(e)}")
+    groq_client = None
+
+# HuggingFace 임베딩 모델 설정
+try:
+    embedding_model = HuggingFaceEmbedding(model_name=EMBEDDING_MODEL)
+    Settings.embed_model = embedding_model
+    logger.info(f"HuggingFace 임베딩 모델 로드 완료: {EMBEDDING_MODEL}")
+except Exception as e:
+    logger.error(f"HuggingFace 임베딩 모델 로드 실패: {str(e)}")
+    embedding_model = None
 
 # 강의 인덱스 저장소
 lecture_indices = {}  # task_id를 키로 사용하여 각 강의별 인덱스 저장
@@ -27,8 +44,29 @@ tones = {
     "c": "따뜻하고 다정하고 정중한"
 }
 
+def get_qa_response(messages, temperature=0.7):
+    """질의응답을 위한 Groq API 응답 생성"""
+    if not groq_client:
+        raise ValueError("Groq 클라이언트가 초기화되지 않았습니다.")
+    
+    try:
+        response = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=2000
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        logger.error(f"Groq 질의응답 생성 실패: {str(e)}")
+        raise
+
 def index_lecture_text(task_id):
-    """강의 텍스트를 벡터 DB에 인덱싱 - 청킹 방식 개선"""
+    """강의 텍스트를 벡터 DB에 인덱싱 - HuggingFace 임베딩 사용"""
+    if not embedding_model:
+        logger.error("임베딩 모델이 로드되지 않았습니다.")
+        return False
+    
     try:
         # 해당 task_id의 텍스트 파일 로드
         text_path = os.path.join(DATA_FOLDER, f"{task_id}.txt")
@@ -96,8 +134,10 @@ def index_lecture_text(task_id):
         
         logger.info(f"텍스트를 {len(documents)}개 청크로 분할")
         
-        # 나머지 코드는 기존과 동일
-        faiss_index = faiss.IndexFlatL2(1536)
+        # FAISS 벡터 스토어 생성 (HuggingFace 임베딩 사용)
+        # HuggingFace 모델의 임베딩 차원 확인 (보통 384차원)
+        embed_dim = 384  # all-MiniLM-L6-v2의 차원
+        faiss_index = faiss.IndexFlatL2(embed_dim)
         vector_store = FaissVectorStore(faiss_index=faiss_index)
         storage_context = StorageContext.from_defaults(vector_store=vector_store)
         
@@ -114,39 +154,14 @@ def index_lecture_text(task_id):
         # 대화 기록 초기화
         conversation_history[task_id] = deque(maxlen=6)
         
-        logger.info(f"강의 텍스트 인덱싱 완료: {task_id}")
+        logger.info(f"강의 텍스트 인덱싱 완료 (HuggingFace 임베딩): {task_id}")
         return True
     except Exception as e:
         logger.error(f"강의 텍스트 인덱싱 실패: {str(e)}")
         return False
 
-# 검증 함수 수정 - 어조 파라미터 추가
-def verify_answer(question, answer, tone="b"):
-    """답변의 정확성을 검증 (어조 옵션 포함)"""
-    try:
-        tone_description = tones.get(tone, tones["b"])  # 기본값은 정중한 어조
-        
-        verification_prompt = f"이 질문에 대한 답변이 정확한지 평가해 주세요. 답변은 {tone_description} 어조를 반영해야 하지만, 정확성만 평가해야 합니다. 질문: {question} 답변: {answer}. 답변의 정확성만 평가하고, 예/아니오로 답해주세요."
-
-        verification_response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": f"당신은 답변의 정확성을 평가하는 역할을 합니다. 답변은 {tone_description} 어조를 반영해야 하지만, 정확성만 평가해야 합니다."},
-                {"role": "user", "content": verification_prompt}
-            ]
-        )
-
-        # 검증 결과 추출
-        content = verification_response.choices[0].message.content.strip().rstrip('.')
-        logger.info(f"[검증 결과] 질문: {question} | 검증 결과: {content}")
-        return content
-    except Exception as e:
-        logger.error(f"답변 검증 실패: {str(e)}")
-        return "예"  # 검증 실패 시 기본적으로 답변이 맞다고 가정
-
-# generate_answer 함수 수정 - 어조 파라미터 추가
 def generate_answer(task_id, question, tone="b"):
-    """벡터 DB에서 질문에 대한 답변 생성 (스트리밍 없음, 어조 옵션 포함) - 개선된 검색 적용"""
+    """벡터 DB에서 질문에 대한 답변 생성 (Groq 사용)"""
     try:
         # 벡터 DB 초기화 확인
         if not os.path.exists(os.path.join(DATA_FOLDER, f"{task_id}.txt")):
@@ -219,16 +234,13 @@ def generate_answer(task_id, question, tone="b"):
 {tone_description} 어조로 한국어로 답변하세요.
 """
         
-        # 응답 생성
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
+        # 응답 생성 - Groq 사용
+        messages = [
                 {"role": "system", "content": f"당신은 강의 내용에 대해 답변하는 도우미입니다. {tone_description} 어조로 한국어로 답변해주세요."},
                 {"role": "user", "content": full_prompt}
             ]
-        )
         
-        answer = response.choices[0].message.content
+        answer = get_qa_response(messages, temperature=0.7)
         
         # 대화 기록에 AI 응답 추가
         add_to_conversation_history(task_id, "AI", answer)
@@ -239,9 +251,8 @@ def generate_answer(task_id, question, tone="b"):
         logger.error(f"질의 처리 실패: {str(e)}")
         return f"오류가 발생했습니다: {str(e)}"
 
-# 스트리밍 답변 생성 함수 수정
 def generate_streaming_answer(task_id, question, tone="b"):
-    """벡터 DB 기반으로 스트리밍 답변 생성 (어조 옵션 포함)"""
+    """벡터 DB 기반으로 스트리밍 답변 생성"""
     # 대화 기록이 없으면 초기화
     if task_id not in conversation_history:
         conversation_history[task_id] = deque(maxlen=6)
@@ -268,15 +279,8 @@ def generate_streaming_answer(task_id, question, tone="b"):
     # 대화 기록에 AI 응답 추가
     add_to_conversation_history(task_id, "AI", answer)
 
-# 기존 함수 유지
-def get_conversation_history(task_id):
-    """대화 기록 가져오기"""
-    if task_id not in conversation_history:
-        conversation_history[task_id] = deque(maxlen=6)
-    return conversation_history[task_id]
-
 def add_to_conversation_history(task_id, role, content):
-    """대화 기록에 추가"""
+    """대화 기록에 메시지 추가"""
     if task_id not in conversation_history:
         conversation_history[task_id] = deque(maxlen=6)
     conversation_history[task_id].append((role, content))

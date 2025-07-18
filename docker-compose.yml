@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  ai-convert:
+    build: .
+    container_name: ai-convert-service
+    ports:
+      - "5000:5000"
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=${GROQ_MODEL:-gemma2-9b-it}
+      - BACKEND_URL=${BACKEND_URL:-http://localhost:8080}
+      - WHISPER_MODEL=${WHISPER_MODEL:-base}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+    volumes:
+      - ./uploads:/app/uploads
+      - ./processed:/app/processed
+      - ./results:/app/results
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - ai-network
+
+networks:
+  ai-network:
+    driver: bridge 

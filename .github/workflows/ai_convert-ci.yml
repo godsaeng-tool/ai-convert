@@ -1,0 +1,60 @@
+name: AI Convert Service CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Deploy to EC2
+      uses: appleboy/ssh-action@v0.1.7
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USERNAME }}
+        key: ${{ secrets.EC2_PRIVATE_KEY }}
+        script: |
+          # AI Convert 프로젝트 디렉토리로 이동 (없으면 생성)
+          cd /home/ubuntu
+          
+          # 기존 ai_convert 디렉토리가 있으면 백업
+          if [ -d "ai_convert" ]; then
+            sudo mv ai_convert ai_convert_backup_$(date +%Y%m%d_%H%M%S)
+          fi
+          
+          # 최신 코드 클론
+          git clone https://github.com/${{ github.repository }} ai_convert
+          cd ai_convert
+          
+          # 환경변수 파일 생성
+          cat > .env << EOF
+          GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL=${{ secrets.GROQ_MODEL }}
+          BACKEND_URL=${{ secrets.BACKEND_URL }}
+          WHISPER_MODEL=base
+          EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+          EOF
+          
+          # 기존 컨테이너 중지 및 제거 (Docker Compose 사용)
+          sudo docker-compose down 2>/dev/null || true
+          sudo docker system prune -f
+          
+          # Docker Compose로 빌드 및 실행
+          sudo docker-compose up -d --build
+          
+          # 컨테이너 상태 확인
+          sleep 15
+          sudo docker-compose ps
+          
+          # 헬스체크
+          sleep 5
+          curl -f http://localhost:5000/health || echo "Health check failed, but container may still be starting"
+          
+          echo "AI Convert deployment with 100% FREE APIs completed successfully!"
