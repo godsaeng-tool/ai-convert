@@ -57,4 +57,4 @@ jobs:
           sleep 5
           curl -f http://localhost:5000/health || echo "Health check failed, but container may still be starting"
           
-          echo "AI Convert deployment with 100% FREE APIs completed successfully!"
+          echo "AI Convert deployment completed successfully!"
