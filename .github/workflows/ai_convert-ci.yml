@@ -19,7 +19,7 @@ jobs:
       with:
         host: ${{ secrets.EC2_HOST }}
         username: ${{ secrets.EC2_USERNAME }}
-        key: ${{ secrets.EC2_PRIVATE_KEY }}
+        key: ${{ secrets.EC2_KEY }}
         script: |
           # AI Convert 프로젝트 디렉토리로 이동 (없으면 생성)
           cd /home/ubuntu
