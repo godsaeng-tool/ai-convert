@@ -1,25 +1,37 @@
+# Flask 웹 서버
 Flask==3.0.0
 flask-cors==4.0.0
 Werkzeug==3.0.1
+gunicorn==21.2.0
+
+# AI 서비스
 groq==0.6.0
 httpx==0.27.2
+
+# 유틸리티
 python-dotenv==1.0.0
 requests==2.31.0
+pandas==2.0.3
+
+# 파일 처리
 PyPDF2==3.0.1
 PyMuPDF==1.24.7
 python-pptx==0.6.23
 python-multipart==0.0.6
+
+# 미디어 처리
 ffmpeg-python==0.2.0
+yt-dlp==2023.12.30
+youtube-dl==2021.12.17
+
+# Whisper - CPU 버전
 openai-whisper==20231117
-torch==2.0.1
-torchaudio==2.0.2
-sentence-transformers==2.6.1
-llama-index==0.12.49
-llama-index-vector-stores-faiss==0.4.0
-llama-index-embeddings-huggingface==0.5.5
+torch==1.13.1
+torchaudio==0.13.1
+
+# 임베딩
+sentence-transformers==2.2.2
+
+# 벡터 DB
 faiss-cpu==1.7.4
 numpy==1.24.3
-pandas==2.0.3
-youtube-dl==2021.12.17
-yt-dlp==2023.12.30
-gunicorn==21.2.0 
