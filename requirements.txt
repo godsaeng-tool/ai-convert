@@ -11,9 +11,9 @@ openai-whisper==20231117
 torch==2.0.1
 torchaudio==2.0.2
 sentence-transformers==2.2.2
-llama-index==0.10.66
-llama-index-vector-stores-faiss==0.1.2
-llama-index-embeddings-huggingface==0.1.4
+llama-index==0.12.49
+llama-index-vector-stores-faiss==0.2.16
+llama-index-embeddings-huggingface==0.3.2
 faiss-cpu==1.7.4
 numpy==1.24.3
 pandas==2.0.3
