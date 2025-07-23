@@ -23,7 +23,7 @@ youtube-dl==2021.12.17
 
 # Whisper - CPU 버전
 openai-whisper==20231117
-torch==2.0.1
+torch==2.0.0
 torchaudio==2.0.1
 
 # 임베딩
