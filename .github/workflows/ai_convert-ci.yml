@@ -19,7 +19,7 @@ jobs:
       with:
         host: ${{ secrets.EC2_HOST }}
         username: ${{ secrets.EC2_USERNAME }}
-        key: ${{ secrets.EC2_KEY }}
+        key: ${{ secrets.EC2_KEY_AI }}
         port: 22
         script: |
           # AI Convert 프로젝트 디렉토리로 이동
