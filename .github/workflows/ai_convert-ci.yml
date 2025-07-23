@@ -16,6 +16,7 @@ jobs:
 
     - name: Deploy to EC2
       uses: appleboy/ssh-action@v1.0.0
+      timeout-minutes: 20
       with:
         host: ${{ secrets.EC2_HOST }}
         username: ${{ secrets.EC2_USERNAME }}
@@ -57,7 +58,7 @@ jobs:
           
           # 컨테이너가 완전히 시작될 때까지 대기
           echo "⏳ Waiting for containers to start..."
-          sleep 30
+          sleep 60
           
           # 컨테이너 상태 확인
           echo "Container status:"
