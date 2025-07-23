@@ -18,19 +18,19 @@ python-multipart==0.0.6
 
 # 미디어 처리
 ffmpeg-python==0.2.0
-yt-dlp==2023.12.30
+yt-dlp==2024.1.7
 youtube-dl==2021.12.17
 
 # Whisper - CPU 버전
 openai-whisper==20231117
-torch==1.13.1
-torchaudio==0.13.1
+torch==2.0.1
+torchaudio==2.0.1
 
 # 임베딩
-sentence-transformers==2.2.2
+sentence-transformers==2.7.0
 
 # 벡터 DB
-faiss-cpu==1.7.4
+faiss-cpu==1.8.0
 numpy==1.24.3
 
 # 유틸리티
