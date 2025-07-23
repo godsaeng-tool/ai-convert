@@ -18,7 +18,7 @@ python-multipart==0.0.6
 
 # 미디어 처리
 ffmpeg-python==0.2.0
-yt-dlp==2024.1.7
+yt-dlp==2023.12.30
 youtube-dl==2021.12.17
 
 # Whisper - CPU 버전
